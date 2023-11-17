@@ -22,6 +22,14 @@ pub trait Node: Debug {
         None
     }
 
+    fn get_tuple(&self) -> Option<&TupleNode> {
+        None
+    }
+
+    fn take_tuple(self: Box<Self>) -> Option<TupleNode> {
+        None
+    }
+
     fn get_float_mut(&mut self) -> Option<&mut FloatNode> {
         None
     }
@@ -65,6 +73,18 @@ pub struct BinaryOpNode {
 pub struct UnaryOpNode {
     pub value: Box<dyn Node>,
     pub op: TokenType,
+}
+
+#[derive(Debug)]
+pub struct AccessNode {
+    pub value: Box<dyn Node>,
+    pub field: Box<dyn Node>,
+}
+
+#[derive(Debug)]
+pub struct SubscriptNode {
+    pub value: Box<dyn Node>,
+    pub subscript: Box<dyn Node>,
 }
 
 #[derive(Debug)]
@@ -145,6 +165,18 @@ impl Node for ReturnNode {
     }
 }
 
+impl Node for AccessNode {
+    fn to_string(&self) -> String {
+        return format!("{}.{}", self.value.to_string(), self.field.to_string());
+    }
+}
+
+impl Node for SubscriptNode {
+    fn to_string(&self) -> String {
+        return format!("{}[{}]", self.value.to_string(), self.subscript.to_string());
+    }
+}
+
 impl Node for IfNode {
     fn to_string(&self) -> String {
         return format!("if {}:\n{}", self.condition.to_string(), self.block.to_string());
@@ -178,6 +210,14 @@ impl Node for TupleNode {
 
     fn get_tuple_mut(&mut self) -> Option<&mut TupleNode> {
         Some(self)
+    }
+
+    fn get_tuple(&self) -> Option<&TupleNode> {
+        Some(self)
+    }
+    
+    fn take_tuple(self: Box<Self>) -> Option<TupleNode> {
+        Some(*self)
     }
 }
 

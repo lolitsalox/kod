@@ -57,7 +57,7 @@ impl Lexer {
                 return self.collect_string();
             }
         
-            if self.ch.is_ascii_digit() {
+            if self.ch.is_digit(10) || self.ch == '.' {
                 return self.collect_number();
             }
 
@@ -224,6 +224,8 @@ impl Lexer {
                     }
                 }
             }
+        } else if self.ch == '.' {
+            number.push('0');
         }
     
         while self.can_advance() && ((is_hex && self.ch.is_digit(16)) || 
@@ -252,11 +254,11 @@ impl Lexer {
         let mut tok = Token::new(ttype, number.clone(), this_line, this_column);
     
         if is_hex {
-            tok.int_value = i64::from_str_radix(&number[0..], 16).unwrap();
+            tok.int_value = i64::from_str_radix(&number, 16).unwrap();
         } else if is_bin {
-            tok.int_value = i64::from_str_radix(&number[0..], 2).unwrap();
+            tok.int_value = i64::from_str_radix(&number, 2).unwrap();
         } else if is_oct {
-            tok.int_value = i64::from_str_radix(&number[0..], 8).unwrap();
+            tok.int_value = i64::from_str_radix(&number, 8).unwrap();
         } else if dot {
             tok.float_value = number.parse().unwrap();
         } else {

@@ -12,6 +12,7 @@ pub enum ParserError<'a> {
     UnexpectedToken(Token),
     UnexpectedTokenExpected(Token, TokenType),
     UnnamedError(&'a str),
+    UnfinishedList(Token),
 }
 
 impl<'a> std::fmt::Display for ParserError<'a> {
@@ -20,6 +21,7 @@ impl<'a> std::fmt::Display for ParserError<'a> {
             ParserError::UnexpectedToken(t) => write!(f, "Unexpected token: {:?}", t),
             ParserError::UnexpectedTokenExpected(t, expected) => write!(f, "Unexpected token: {:?}, expected: {:?}", t, expected),
             ParserError::UnnamedError(s) => write!(f, "Unnamed error: {}", s),
+            ParserError::UnfinishedList(t) => write!(f, "Unfinished list: {:?}", t),
         }
     }
 }
@@ -136,7 +138,11 @@ impl Parser {
     }
 
     fn parse_gltl(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
-        self.parse_binary_op(vec![TokenType::BoolGt, TokenType::BoolLt, TokenType::BoolGte, TokenType::BoolLte], |p| p.parse_add_sub())
+        self.parse_binary_op(vec![TokenType::BoolGt, TokenType::BoolLt, TokenType::BoolGte, TokenType::BoolLte], |p| p.parse_shlr())
+    }
+
+    fn parse_shlr(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        self.parse_binary_op(vec![TokenType::SHL, TokenType::SHR], |p| p.parse_add_sub())
     }
 
     fn parse_add_sub(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
@@ -182,9 +188,6 @@ impl Parser {
             return Ok(value);
         } else if let Some(float_node) = value.as_deref_mut().unwrap().get_float_mut() {
             match ttype {
-                TokenType::NOT => {
-                    return Err(ParserError::UnnamedError("Cannot negate a float").into());
-                },
                 TokenType::BoolNot => {
                     float_node.value = (float_node.value == 0.0) as i64 as f64;
                 },
@@ -203,7 +206,37 @@ impl Parser {
     fn parse_after(&mut self, prev: Option<Box<dyn Node>>) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
         let value = if prev.is_none() { self.parse_factor()? } else { prev.into() };
 
+        match self.lexer.peek().unwrap().token_type {
+            TokenType::LPAREN => {
+                let mut args: Vec<Box<dyn Node>> = match self.parse_tuple(true)? {
+                    Some(ls) if ls.get_tuple().is_some() => ls.take_tuple().unwrap().values,
+                    Some(ls) => vec![ls],
+                    _ => vec![],
+                };
 
+                if value.get_id().is_some() {
+                    if self.lexer.peek().unwrap().token_type == TokenType::LBRACE {
+                        return Ok(Some(Box::new(FuncDefNode { callie: value.unwrap(), args, body: self.parse_block() })));
+                    }
+                }
+            },
+            
+            TokenType::DOT => {
+                self.eat(&TokenType::DOT)?;
+
+                let field = self.parse_id()?;
+                return self.parse_after(Some(Box::new(AccessNode { value: value.unwrap(), field: field.unwrap() })));
+            },
+
+            TokenType::LBRACKET => {
+                self.eat(&TokenType::LBRACKET)?;
+
+                let subscript = self.parse_statement()?;
+                return self.parse_after(Some(Box::new(SubscriptNode { value: value.unwrap(), subscript: subscript.unwrap() })));
+            },
+
+            _ => (),
+        }
 
         Ok(value)
     }
@@ -324,7 +357,23 @@ impl Parser {
                             continue;
                         }
                     }
-                }
+                },
+                TokenType::SHR => {
+                    if let Some(int_node) = left.as_deref_mut().unwrap().get_int_mut() {
+                        if let Some(int_node_right) = right.as_deref_mut().unwrap().get_int_mut() {
+                            int_node.value >>= int_node_right.value;
+                            continue;
+                        }
+                    }
+                },
+                TokenType::SHL => {
+                    if let Some(int_node) = left.as_deref_mut().unwrap().get_int_mut() {
+                        if let Some(int_node_right) = right.as_deref_mut().unwrap().get_int_mut() {
+                            int_node.value <<= int_node_right.value;
+                            continue;
+                        }
+                    }
+                },
                 _ => (),
             }
 
@@ -359,7 +408,7 @@ impl Parser {
             }
     
             self.skip_newline_or_semicolon();
-            let expr = self.parse_statement()?;
+            let expr = self.parse_bool_or()?;
             if expr.is_none() {
                 return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
             }
@@ -372,6 +421,10 @@ impl Parser {
                     self.eat(&TokenType::COMMA)?;
                     if let Some(ref mut got_comma_ref) = got_comma {
                         **got_comma_ref = true;
+                    }
+
+                    if got_comma.is_none() && self.lexer.peek()?.token_type == delims.1{
+                        return Err(ParserError::UnfinishedList(self.lexer.peek().unwrap()).into());
                     }
                 } else {
                     self.eat(&delims.1)?;
@@ -400,7 +453,8 @@ impl Parser {
     }
 
     fn parse_list(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
-        let values = self.parse_body((TokenType::LBRACKET, TokenType::RBRACKET), false, &mut None)?;
+        let values = self.parse_body((TokenType::LBRACKET, TokenType::RBRACKET), true, &mut None)?;
+        
         Ok(Some(Box::new(TupleNode { values, is_list: true })))
     }
 }
