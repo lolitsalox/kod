@@ -1,6 +1,5 @@
 mod kod;
-
-use kod::{lexer::lexer::Lexer, parser::parser::Parser};
+use kod::{lexer::lexer::Lexer, parser::parser::Parser, compiler::compiler::JitCompiler};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let args: Vec<String> = std::env::args().collect();
@@ -17,5 +16,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = Parser::new(lexer);
 
     print!("{}", parser.parse()?.to_string());
+
+    let mut compiler = JitCompiler::new();
+
+    compiler.compile(parser.parse()?);
+    compiler.run();
+
     Ok(())
 }
