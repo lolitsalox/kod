@@ -57,7 +57,7 @@ impl Lexer {
                 return self.collect_string();
             }
         
-            if self.ch.is_digit(10) || self.ch == '.' {
+            if self.ch.is_digit(10) || (self.ch == '.' && self.peek_char(1).is_digit(10)) {
                 return self.collect_number();
             }
 
@@ -167,8 +167,7 @@ impl Lexer {
     }
 
     fn peek_char(&mut self, offset: usize) -> char {
-        let index = self.position + offset;
-        return if index < self.contents.len() { self.contents.chars().nth(index).unwrap() } else { '\0' };
+        self.contents.chars().nth(self.position + offset).unwrap_or_default()
     }
 
     fn collect_identifier(&mut self) -> Result<Token, LexerError> {

@@ -8,25 +8,23 @@ pub struct Parser {
 }
 
 #[derive(Debug)]
-pub enum ParserError<'a> {
+pub enum ParserError {
     UnexpectedToken(Token),
     UnexpectedTokenExpected(Token, TokenType),
-    UnnamedError(&'a str),
     UnfinishedList(Token),
 }
 
-impl<'a> std::fmt::Display for ParserError<'a> {
+impl std::fmt::Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParserError::UnexpectedToken(t) => write!(f, "Unexpected token: {:?}", t),
             ParserError::UnexpectedTokenExpected(t, expected) => write!(f, "Unexpected token: {:?}, expected: {:?}", t, expected),
-            ParserError::UnnamedError(s) => write!(f, "Unnamed error: {}", s),
             ParserError::UnfinishedList(t) => write!(f, "Unfinished list: {:?}", t),
         }
     }
 }
 
-impl<'a> std::error::Error for ParserError<'a> {}   
+impl std::error::Error for ParserError {}   
 
 impl Parser {
     pub fn new(lexer: Lexer) -> Parser {
@@ -93,7 +91,7 @@ impl Parser {
     fn parse_commas(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
         let value = self.parse_bool_or()?;
 
-        if value.is_some() && self.lexer.peek().unwrap().token_type == TokenType::COMMA {
+        if !self.getting_params && value.is_some() && self.lexer.peek().unwrap().token_type == TokenType::COMMA {
             let mut tuple = Box::new(TupleNode { values: vec![value.unwrap()], is_list: false });
 
             while self.lexer.peek().unwrap().token_type == TokenType::COMMA {
@@ -166,6 +164,7 @@ impl Parser {
         }
 
         self.eat(&ttype)?;
+      
         let mut value = self.parse_after(None)?;
         if value.is_none() {
             return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
@@ -208,24 +207,37 @@ impl Parser {
 
         match self.lexer.peek().unwrap().token_type {
             TokenType::LPAREN => {
-                let mut args: Vec<Box<dyn Node>> = match self.parse_tuple(true)? {
+                self.getting_params = true;
+                let list: Vec<Box<dyn Node>> = match self.parse_tuple(true)? {
                     Some(ls) if ls.get_tuple().is_some() => ls.take_tuple().unwrap().values,
                     Some(ls) => vec![ls],
                     _ => vec![],
                 };
+                self.getting_params = false;
 
-                if value.get_id().is_some() {
+                if value.as_ref().unwrap().get_id().is_some() {
                     if self.lexer.peek().unwrap().token_type == TokenType::LBRACE {
-                        return Ok(Some(Box::new(FuncDefNode { callie: value.unwrap(), args, body: self.parse_block() })));
+                        return Ok(Some(Box::new(FuncDefNode { 
+                            name: Box::new(value.unwrap().take_id().unwrap()), 
+                            params: list, 
+                            body: Box::new(self.parse_block()?.unwrap().take_block().unwrap()) 
+                        })));
                     }
                 }
+
+                return self.parse_after(Some(Box::new(FuncCallNode {
+                    callie: value.unwrap(),
+                    args: list,
+                })))
             },
             
             TokenType::DOT => {
                 self.eat(&TokenType::DOT)?;
 
+                dbg!(&value);
+
                 let field = self.parse_id()?;
-                return self.parse_after(Some(Box::new(AccessNode { value: value.unwrap(), field: field.unwrap() })));
+                return self.parse_after(Some(Box::new(AccessNode { value: value.unwrap(), field: field.unwrap(), load_self: false })));
             },
 
             TokenType::LBRACKET => {
@@ -408,7 +420,8 @@ impl Parser {
             }
     
             self.skip_newline_or_semicolon();
-            let expr = self.parse_bool_or()?;
+            let expr = self.parse_statement()?;
+
             if expr.is_none() {
                 return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
             }
@@ -453,8 +466,14 @@ impl Parser {
     }
 
     fn parse_list(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        self.getting_params = true;
         let values = self.parse_body((TokenType::LBRACKET, TokenType::RBRACKET), true, &mut None)?;
+        self.getting_params = false;
         
         Ok(Some(Box::new(TupleNode { values, is_list: true })))
+    }
+
+    fn parse_block(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        Ok(Some(Box::new(BlockNode { statements: self.parse_body((TokenType::LBRACE, TokenType::RBRACE), false, &mut None)? })))
     }
 }

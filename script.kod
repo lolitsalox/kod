@@ -1,3 +1,4 @@
-main() {
-    
+main(a,b,c) {
+    print([1,2,3].join(", "))
+    x = a * b + c
 }

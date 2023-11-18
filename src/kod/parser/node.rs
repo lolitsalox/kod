@@ -17,6 +17,26 @@ pub trait Node: Debug {
     fn get_int_mut(&mut self) -> Option<&mut IntNode> {
         None
     }
+
+    fn get_access(&self) -> Option<&AccessNode> {
+        None
+    }
+
+    fn get_access_mut(&mut self) -> Option<&mut AccessNode> {
+        None
+    }
+
+    fn get_id(&self) -> Option<&IdNode> {
+        None
+    }
+
+    fn take_id(self: Box<Self>) -> Option<IdNode> {
+        None
+    }
+
+    fn take_block(self: Box<Self>) -> Option<BlockNode> {
+        None
+    }
     
     fn get_tuple_mut(&mut self) -> Option<&mut TupleNode> {
         None
@@ -57,6 +77,19 @@ pub struct BlockNode {
 }
 
 #[derive(Debug)]
+pub struct FuncDefNode {
+    pub name: Box<IdNode>,
+    pub params: Vec<Box<dyn Node>>,
+    pub body: Box<BlockNode>,
+}
+
+#[derive(Debug)]
+pub struct FuncCallNode {
+    pub callie: Box<dyn Node>,
+    pub args: Vec<Box<dyn Node>>,
+}
+
+#[derive(Debug)]
 pub struct AssignmentNode {
     pub left: Box<dyn Node>,
     pub right: Box<dyn Node>,
@@ -79,6 +112,7 @@ pub struct UnaryOpNode {
 pub struct AccessNode {
     pub value: Box<dyn Node>,
     pub field: Box<dyn Node>,
+    pub load_self: bool,
 }
 
 #[derive(Debug)]
@@ -139,6 +173,10 @@ impl Node for BlockNode {
         }
         s
     }
+
+    fn take_block(self: Box<Self>) -> Option<BlockNode> {
+        Some(*self)
+    }
 }
 
 impl Node for AssignmentNode {
@@ -169,6 +207,14 @@ impl Node for AccessNode {
     fn to_string(&self) -> String {
         return format!("{}.{}", self.value.to_string(), self.field.to_string());
     }
+
+    fn get_access(&self) -> Option<&AccessNode> {
+        Some(self)
+    }
+
+    fn get_access_mut(&mut self) -> Option<&mut AccessNode> {
+        Some(self)
+    }
 }
 
 impl Node for SubscriptNode {
@@ -191,21 +237,14 @@ impl Node for WhileNode {
 
 impl Node for TupleNode {
     fn to_string(&self) -> String {
-        let delims = if self.is_list { ('[', ']') } else { ('(', ')') };
-        let mut s = delims.0.to_string();
-
-        for (i, value) in self.values.iter().enumerate() {
-            s.push_str(&value.to_string());
-            if i < self.values.len() - 1 {
-                s.push_str(", ");
-            }
-        }
-
-        if self.values.len() == 1 {
-            s.push(',');
-        }
-        s.push(delims.1);
-        s
+        dbg!(self.values.len());
+        dbg!(&self.values);
+        let delims = if self.is_list {
+            ("[", "]")
+        } else {
+            ("(", ")")
+        };
+        return delims.0.to_string() + &self.values.iter().map(|x| { x.to_string() }).collect::<Vec<String>>().join(", ") + delims.1;
     }
 
     fn get_tuple_mut(&mut self) -> Option<&mut TupleNode> {
@@ -251,7 +290,7 @@ impl Node for FloatNode {
 
 impl Node for StringNode {
     fn to_string(&self) -> String {
-        return self.value.clone();
+        return format!("\"{}\"", self.value);
     }
 
     fn is_constant(&self) -> bool {
@@ -266,5 +305,25 @@ impl Node for StringNode {
 impl Node for IdNode {
     fn to_string(&self) -> String {
         return self.value.clone();
+    }
+
+    fn get_id(&self) -> Option<&IdNode> {
+        Some(self)
+    }
+
+    fn take_id(self: Box<Self>) -> Option<IdNode> {
+        Some(*self)
+    }
+}
+
+impl Node for FuncDefNode {
+    fn to_string(&self) -> String {
+        return format!("{}({}) {{\n{}}}", self.name.to_string(), self.params.iter().map(|x| { x.to_string() }).collect::<Vec<String>>().join(", "), self.body.to_string());
+    }
+}
+
+impl Node for FuncCallNode {
+    fn to_string(&self) -> String {
+        return format!("{}({})", self.callie.to_string(), self.args.iter().map(|x| { x.to_string() }).collect::<Vec<String>>().join(", "));
     }
 }
