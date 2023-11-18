@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::vec;
 use std::ptr;
 use winapi::um::memoryapi::{VirtualAlloc, VirtualFree};
@@ -34,45 +35,148 @@ pub struct JitCompiler {
     pub assembler: Assembler,
 }
 
-#[repr(u8)]
-pub enum XMMRegister {
-    XMM0 = 0,
-    XMM1 = 1,
-    XMM2 = 2,
-    XMM3 = 3,
-    XMM4 = 4,
-    XMM5 = 5,
-    XMM6 = 6,
-    XMM7 = 7,
-    XMM8 = 8,
-    XMM9 = 9,
-    XMM10 = 10,
-    XMM11 = 11,
-    XMM12 = 12,
-    XMM13 = 13,
-    XMM14 = 14,
-    XMM15 = 15,
+pub struct ModRm {
+    pub raw: u8,
 }
 
-#[repr(u8)]
+pub enum ModRmEnum {
+    Mem,
+    MemDisp8,
+    MemDisp32,
+    Reg,
+}
+
+impl ModRmEnum {
+    pub fn encode(&self) -> u8 {
+        match self {
+            ModRmEnum::Mem => 0b00,
+            ModRmEnum::MemDisp8 => 0b01,
+            ModRmEnum::MemDisp32 => 0b10,
+            ModRmEnum::Reg => 0b11,
+        }
+    }
+}
+
+impl ModRm {
+    pub fn new(rm: u8, reg: u8, mode: u8) -> Self {
+        ModRm { 
+            raw: (mode & 0b11) << 6 | (reg & 0b111) << 3 | (rm & 0b111)
+        }
+    }
+
+    pub fn encode(&self) -> u8 {
+        self.raw
+    }
+
+    pub fn set_mode(&mut self, mode: u8) {
+        self.raw = (mode & 0b11) << 6 | (self.raw & !(0b11 << 6));
+    }
+}
+
+pub struct Rex {
+    pub raw: u8,
+    /*
+    u8 B : 1  // ModRM::RM
+    u8 X : 1; // SIB::Index
+    u8 R : 1; // ModRM::Reg
+    u8 W : 1; // Operand size override
+    u8 _ : 4; // { 0b0100 }
+    */
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum RexW {
+    Yes,
+    No,
+}
+
+impl RexW {
+    pub fn encode(&self) -> u8 {
+        match self {
+            RexW::Yes => 1,
+            RexW::No => 0,
+        }
+    }
+}
+
+impl Rex {
+    pub fn new(b: u8, x: u8, r: u8, w: u8) -> Self {
+        Rex { 
+            raw: (0b0100 << 4) | (w << 3) | (r << 2) | (x << 1) | b
+        }
+    }
+
+    pub fn encode(&self) -> u8 {
+        self.raw
+    }
+
+    pub fn decode(&self) -> (u8, u8, u8, u8) {
+        (
+            (self.raw >> 6) & 0b1,
+            (self.raw >> 5) & 0b1,
+            (self.raw >> 4) & 0b1,
+            (self.raw >> 3) & 0b1
+        )
+    }
+}
+
 pub enum Register {
-    RAX = 0,
-    RCX = 1,
-    RDX = 2,
-    RBX = 3,
-    RSP = 4,
-    RBP = 5,
-    RSI = 6,
-    RDI = 7,
-    R8 = 8,
-    R9 = 9,
-    R10 = 10,
-    R11 = 11,
-    R12 = 12,
-    R13 = 13,
-    R14 = 14,
-    R15 = 15,
-    XMM(XMMRegister),
+    RAX,
+    RCX,
+    RDX,
+    RBX,
+    RSP,
+    RBP,
+    RSI,
+    RDI,
+    R8,
+    R9,
+    R10,
+    R11,
+    R12,
+    R13,
+    R14,
+    R15,
+    XMM0,
+    XMM1,
+    XMM2,
+    XMM3,
+    XMM4,
+    XMM5,
+    XMM6,
+    XMM7,
+    XMM8,
+    XMM9,
+    XMM10,
+    XMM11,
+    XMM12,
+    XMM13,
+    XMM14,
+    XMM15,
+}
+
+// to_underlying for register
+impl Register {
+    fn encode(&self) -> u8 {
+        match self {
+            Register::RAX | Register::XMM0  => 0,
+            Register::RCX | Register::XMM1  => 1,
+            Register::RDX | Register::XMM2  => 2,
+            Register::RBX | Register::XMM3  => 3,
+            Register::RSP | Register::XMM4  => 4,
+            Register::RBP | Register::XMM5  => 5,
+            Register::RSI | Register::XMM6  => 6,
+            Register::RDI | Register::XMM7  => 7,
+            Register::R8  | Register::XMM8  => 8,
+            Register::R9  | Register::XMM9  => 9,
+            Register::R10 | Register::XMM10 => 10,
+            Register::R11 | Register::XMM11 => 11,
+            Register::R12 | Register::XMM12 => 12,
+            Register::R13 | Register::XMM13 => 13,
+            Register::R14 | Register::XMM14 => 14,
+            Register::R15 | Register::XMM15 => 15,
+        }
+    }
 }
 
 pub enum Immediate {
@@ -92,9 +196,40 @@ impl Immediate {
 }
 
 pub enum Operand {
-    Register(Register),
+    Register(Register, bool), // reg, is_f
     Memory(Register, u64), // (base, offset)
     Immediate(Immediate),
+}
+
+impl Operand {
+    pub fn is_register_or_memory(&self) -> bool {
+        match self {
+            Operand::Register(_, _) | Operand::Memory(_, _) => true,
+            _ => false, 
+        }
+    }
+
+    pub fn register_or_memory_base_to_underlying(&self) -> u8 {
+        match self {
+            Operand::Register(r, _) => r.encode(),
+            Operand::Memory(r, _) => r.encode(),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn offset_or_immediate(&self) -> u64 {
+        match self {
+            Operand::Memory(_, offset) => *offset,
+            Operand::Immediate(Immediate::Immediate8(i)) => *i as u64,
+            Operand::Immediate(Immediate::Immediate32(i)) => *i as u64,
+            Operand::Immediate(Immediate::Immediate64(i)) => *i,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn does_fit_in_32(&self) -> bool {
+        return self.offset_or_immediate() <= u32::MAX as u64;
+    }
 }
 
 impl Assembler {
@@ -104,34 +239,123 @@ impl Assembler {
         }
     }
 
-    pub fn emit8(&mut self, byte: u8) {
+    fn emit(&mut self, other: &[u8]) {
+        self.machine_code.extend_from_slice(other);
+    }
+
+    fn emit8(&mut self, byte: u8) {
         self.machine_code.push(byte);
     }
 
-    pub fn emit32(&mut self, word: u32) {
+    fn emit32(&mut self, word: u32) {
         self.machine_code.extend_from_slice(&word.to_le_bytes());
     }
 
-    pub fn emit64(&mut self, dword: u64) {
+    fn emit64(&mut self, dword: u64) {
         self.machine_code.extend_from_slice(&dword.to_le_bytes());
     }
 
+    fn emit_modrm(&mut self, raw: &mut ModRm, rm: Operand) {
+        assert!(match &rm {
+            Operand::Immediate(_) => false,
+            _ => true,
+        });
+
+        match &rm {
+            Operand::Register(r, _) => {
+                raw.set_mode(ModRmEnum::Reg.encode());
+                self.emit8(raw.encode());
+            },
+            Operand::Memory(r, disp) => {
+                if *disp == 0 {
+                    raw.set_mode(ModRmEnum::Mem.encode());
+                    self.emit8(raw.encode());
+                } else if (*disp as i64 >= -128) && (*disp < 127) {
+                    raw.set_mode(ModRmEnum::MemDisp8.encode());
+                    self.emit8(raw.encode());
+                    self.emit8((*disp & 0xff) as u8);
+                } else {
+                    raw.set_mode(ModRmEnum::MemDisp32.encode());
+                    self.emit8(raw.encode());
+                    self.emit32(*disp as u32);
+                }
+            },
+            Operand::Immediate(_) => {
+                unreachable!("emit_modrm: Operand::Immediate");
+            }
+        }
+    }
+
+    fn emit_modrm_mr(&mut self, dst: &Operand, src: &Operand) {
+        unimplemented!("emit_modrm_mr");
+    }
+
+    fn emit_modrm_slash(&mut self, slash: u8, rm: Operand) {
+        let mut raw = ModRm::new(rm.register_or_memory_base_to_underlying(), slash, 0);
+        self.emit_modrm(&mut raw, rm);
+    }
+
+    fn emit_rex_for_mr(&mut self, dst: &Operand, src: &Operand, w: RexW) {
+        assert!(dst.is_register_or_memory() || match &dst {
+            Operand::Register(_, true) => true,
+            _ => false
+        });
+
+        assert!(match &src {
+            Operand::Register(_, true) | Operand::Register(_, false) => true,
+            _ => false
+        });
+
+        if w == RexW::No && dst.register_or_memory_base_to_underlying() < 8 && src.register_or_memory_base_to_underlying() < 8 { return; }
+
+        let rex = Rex::new(
+            (dst.register_or_memory_base_to_underlying() >= 8) as u8,
+            0, 
+            (src.register_or_memory_base_to_underlying() >= 8) as u8, 
+            w.encode()
+        );
+
+        self.emit8(rex.encode());
+    }
+
+    fn emit_rex_for_slash(&mut self, arg: &Operand, w: RexW) {
+        assert!(arg.is_register_or_memory());
+
+        if w == RexW::No && arg.register_or_memory_base_to_underlying() < 8 { return; }
+
+        let rex = Rex::new(
+            (arg.register_or_memory_base_to_underlying() >= 8) as u8, 
+            0, 
+            0, 
+            w.encode()
+        );
+        self.emit8(rex.encode());
+    }
+
+    fn emit_rex_for_OI(&mut self, arg: &Operand, w: RexW) {
+        self.emit_rex_for_slash(arg, w);
+    }
+
     pub fn mov(&mut self, dst: Operand, src: Operand) {
-        match (dst, src) {
-            (Operand::Register(dst_reg), Operand::Immediate(imm)) => {
-                // Generate mov instruction for moving immediate to register
-                self.machine_code.push(0x48); // REX prefix for 64-bit operands
-                match imm {
-                    Immediate::Immediate8(_) => self.machine_code.push(0xB0), // Opcode for mov with immediate operand
-                    Immediate::Immediate32(_) => self.machine_code.push(0xC0), // Opcode for mov with immediate operand
-                    Immediate::Immediate64(_) => self.machine_code.push(0xC7), // Opcode for mov with immediate operand
+        match (&dst, &src) {
+            (_, Operand::Register(src_reg, true)) if dst.is_register_or_memory() => {
+                if dst.register_or_memory_base_to_underlying() == src.register_or_memory_base_to_underlying() { return; }
+                self.emit_rex_for_mr(&dst, &src, RexW::Yes);
+                self.emit8(0x89);
+                self.emit_modrm_mr(&dst, &src);  
+            },
+
+            (Operand::Register(dst_reg, _), Operand::Immediate(_)) => {
+                if src.does_fit_in_32() {
+                    self.emit_rex_for_slash(&dst, RexW::No);
+                    self.emit8(0xb8 | dst_reg.encode());
+                    self.emit32(src.offset_or_immediate() as u32);
+                    return;
                 }
-                match dst_reg {
-                    Register::RAX => self.machine_code.push(0xC0), // ModR/M byte for RAX
-                    Register::RBX => self.machine_code.push(0xC3), // ModR/M byte for RBX
-                }
-                
-                self.machine_code.extend_from_slice(&imm.to_le_bytes());
+
+                self.emit_rex_for_OI(&dst, RexW::Yes);
+                self.emit8(0xb8 | dst_reg.encode());
+                self.emit64(src.offset_or_immediate());
             }
             _ => {
                 // Handle other cases as needed
@@ -145,6 +369,11 @@ impl Assembler {
     }
 }
 
+fn test() -> u64 {
+    println!("Hello from test!");
+    return 0x69420;
+}
+
 impl JitCompiler {
     pub fn new() -> Self {
         Self {
@@ -153,13 +382,14 @@ impl JitCompiler {
     }
 
     pub fn compile(&mut self, ast: Box<dyn Node>) {
-        self.assembler.mov(Operand::Register(Register::RAX), Operand::Immediate(Immediate::Immediate64(69)));
+        self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(test as u64)));
+        self.assembler.emit8(0xff);
+        self.assembler.emit_modrm_slash(2, Operand::Register(Register::RAX, false));
         self.assembler.ret();
 
-        // disassemble_machine_code(&vec![0x48, 0xC7, 0xC0, 0x69, 0x00, 0x00, 0x00]);
-
-
+        println!("{:x?}", self.assembler.machine_code);
         disassemble_machine_code(&self.assembler.machine_code);
+
     }
 
     pub fn run(&mut self) { 
@@ -200,6 +430,6 @@ impl JitCompiler {
             VirtualFree(code_ptr, 0, MEM_RELEASE);
         }
 
-        println!("JIT Result: {}", result);
+        println!("JIT Result: {:x}", result);
     }
 }
