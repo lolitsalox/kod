@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use winapi::ctypes::c_void;
 use std::vec;
 use std::ptr;
 use winapi::um::memoryapi::{VirtualAlloc, VirtualFree};
@@ -120,6 +120,7 @@ impl Rex {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Register {
     RAX,
     RCX,
@@ -179,6 +180,7 @@ impl Register {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Immediate {
     Immediate8(u8),
     Immediate32(u32),
@@ -195,6 +197,7 @@ impl Immediate {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Operand {
     Register(Register, bool), // reg, is_f
     Memory(Register, u64), // (base, offset)
@@ -227,8 +230,31 @@ impl Operand {
         }
     }
 
-    pub fn does_fit_in_32(&self) -> bool {
+    fn assert_immediate(&self) {
+        assert!(match self {
+            Operand::Immediate(_) => true,
+            _ => false,
+        });
+    }
+
+    pub fn fits_in_u8(&self) -> bool {
+        self.assert_immediate();
+        return self.offset_or_immediate() <= u8::MAX as u64;
+    }
+
+    pub fn fits_in_u32(&self) -> bool {
+        self.assert_immediate();
         return self.offset_or_immediate() <= u32::MAX as u64;
+    }
+
+    pub fn fits_in_i8(&self) -> bool {
+        self.assert_immediate();
+        return self.offset_or_immediate() as i64 <= i8::MAX as i64;
+    }
+
+    pub fn fits_in_i32(&self) -> bool {
+        self.assert_immediate();
+        return self.offset_or_immediate() as i64 <= i32::MAX as i64;
     }
 }
 
@@ -255,7 +281,7 @@ impl Assembler {
         self.machine_code.extend_from_slice(&dword.to_le_bytes());
     }
 
-    fn emit_modrm(&mut self, raw: &mut ModRm, rm: Operand) {
+    fn emit_modrm(&mut self, raw: &mut ModRm, rm: &Operand) {
         assert!(match &rm {
             Operand::Immediate(_) => false,
             _ => true,
@@ -286,11 +312,33 @@ impl Assembler {
         }
     }
 
-    fn emit_modrm_mr(&mut self, dst: &Operand, src: &Operand) {
-        unimplemented!("emit_modrm_mr");
+    fn emit_modrm_rm(&mut self, dst: &Operand, src: &Operand) {
+        assert!(match &src {
+            Operand::Register(_, true) | Operand::Register(_, false) => true,
+            _ => false
+        });
+
+        let mut raw = ModRm::new(
+            dst.register_or_memory_base_to_underlying(), 
+            src.register_or_memory_base_to_underlying(), 
+            0
+        );
+
+        self.emit_modrm(&mut raw, src);
     }
 
-    fn emit_modrm_slash(&mut self, slash: u8, rm: Operand) {
+    fn emit_modrm_mr(&mut self, dst: &Operand, src: &Operand) {
+        assert!(match &src {
+            Operand::Register(_, true) | Operand::Register(_, false) => true,
+            _ => false
+        });
+
+        let mut raw = ModRm::new(dst.register_or_memory_base_to_underlying(), src.register_or_memory_base_to_underlying(), 0);
+
+        self.emit_modrm(&mut raw, dst);
+    }
+
+    fn emit_modrm_slash(&mut self, slash: u8, rm: &Operand) {
         let mut raw = ModRm::new(rm.register_or_memory_base_to_underlying(), slash, 0);
         self.emit_modrm(&mut raw, rm);
     }
@@ -338,7 +386,7 @@ impl Assembler {
 
     pub fn mov(&mut self, dst: Operand, src: Operand) {
         match (&dst, &src) {
-            (_, Operand::Register(src_reg, true)) if dst.is_register_or_memory() => {
+            (_, Operand::Register(_, false)) if dst.is_register_or_memory() => {
                 if dst.register_or_memory_base_to_underlying() == src.register_or_memory_base_to_underlying() { return; }
                 self.emit_rex_for_mr(&dst, &src, RexW::Yes);
                 self.emit8(0x89);
@@ -346,7 +394,14 @@ impl Assembler {
             },
 
             (Operand::Register(dst_reg, _), Operand::Immediate(_)) => {
-                if src.does_fit_in_32() {
+                if src.offset_or_immediate() == 0 {
+                    self.emit_rex_for_mr(&dst, &dst, RexW::No);
+                    self.emit8(0x31);
+                    self.emit_modrm_mr(&dst, &dst);
+                    return;
+                }
+
+                if src.fits_in_u32() {
                     self.emit_rex_for_slash(&dst, RexW::No);
                     self.emit8(0xb8 | dst_reg.encode());
                     self.emit32(src.offset_or_immediate() as u32);
@@ -359,42 +414,153 @@ impl Assembler {
             }
             _ => {
                 // Handle other cases as needed
+                dbg!(&dst, &src);
                 todo!("Handle other cases in mov");
             }
         }
     }
 
-    pub fn ret(&mut self) {
-        self.machine_code.push(0xC3);
+    pub fn trap(&mut self) {
+        self.machine_code.push(0xCC);
     }
-}
 
-fn test() -> u64 {
-    println!("Hello from test!");
-    return 0x69420;
-}
+    pub fn ret(&mut self) {
+        self.emit8(0xc3);
+    }
 
-impl JitCompiler {
-    pub fn new() -> Self {
-        Self {
-            assembler: Assembler::new(),
+    pub fn leave(&mut self) {
+        self.emit8(0xc9);
+    }
+
+    pub fn enter(&mut self) {
+        self.push(Operand::Register(Register::RBP, false));
+        self.mov(Operand::Register(Register::RBP, false), Operand::Register(Register::RSP, false));
+
+        self.push_callee_saved_registers();
+    }
+
+    pub fn exit(&mut self) {
+        self.pop_callee_saved_registers();
+        
+        // leave
+        self.leave();
+        
+        // ret
+        self.ret();
+    }
+
+    pub fn push(&mut self, op: Operand) {
+        match &op {
+            Operand::Register(reg, _) => {
+                self.emit_rex_for_OI(&op, RexW::No);
+                self.emit8(0x50 | reg.encode());
+            }
+            Operand::Immediate(_) if op.fits_in_i8() => {
+                    self.emit8(0x6a);
+                    self.emit8(op.offset_or_immediate() as u8);
+            }
+            Operand::Immediate(_) if op.fits_in_i32() => {
+                self.emit8(0x68);
+                self.emit32(op.offset_or_immediate() as u32);
+            }
+            _ => {
+                unreachable!("push: Invalid operand");
+            }
         }
     }
 
-    pub fn compile(&mut self, ast: Box<dyn Node>) {
-        self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(test as u64)));
-        self.assembler.emit8(0xff);
-        self.assembler.emit_modrm_slash(2, Operand::Register(Register::RAX, false));
-        self.assembler.ret();
+    pub fn pop(&mut self, op: Operand) {
+        match &op {
+            Operand::Register(reg, _) => {
+                self.emit_rex_for_OI(&op, RexW::No);
+                self.emit8(0x58 | reg.encode());
+            }
+            _ => {
+                unreachable!("pop: Invalid operand");
+            }
+        }
+    }
 
-        println!("{:x?}", self.assembler.machine_code);
-        disassemble_machine_code(&self.assembler.machine_code);
+    pub fn push_callee_saved_registers(&mut self) {
 
     }
 
-    pub fn run(&mut self) { 
-        // Allocate virtual memory
-        let code_size = self.assembler.machine_code.len();
+    pub fn pop_callee_saved_registers(&mut self) {
+
+    }
+
+    pub fn sub(&mut self, dst: Operand, src: Operand) {
+        match (&dst, &src) {
+            (_, Operand::Register(src_reg, false)) if dst.is_register_or_memory() => {
+                self.emit_rex_for_mr(&dst, &src, RexW::Yes);
+                self.emit8(0x29);
+                self.emit_modrm_mr(&dst, &src);
+            }
+            (_, Operand::Immediate(_)) if dst.is_register_or_memory() && src.fits_in_i8() => {
+                self.emit_rex_for_slash(&dst, RexW::Yes);
+                self.emit8(0x83);
+                self.emit_modrm_slash(5, &dst);
+                self.emit8(src.offset_or_immediate() as u8);
+            }
+            (_, Operand::Immediate(_)) if dst.is_register_or_memory() && src.fits_in_i32() => {
+                self.emit_rex_for_slash(&dst, RexW::Yes);
+                self.emit8(0x81);
+                self.emit_modrm_slash(5, &dst);
+                self.emit32(src.offset_or_immediate() as u32);
+            }
+            (Operand::Register(_, true), Operand::Register(_, true)) => {
+                self.emit8(0xf2);
+                self.emit8(0x0f);
+                self.emit8(0x5c);
+                self.emit_modrm_rm(&dst, &src);
+            }
+            _ => {
+                unreachable!("sub: Invalid operands");
+            }
+        }
+    }
+
+    pub fn add(&mut self, dst: Operand, src: Operand) {
+        match (&dst, &src) {
+            (_, Operand::Register(src_reg, false)) if dst.is_register_or_memory() => {
+                self.emit_rex_for_mr(&dst, &src, RexW::Yes);
+                self.emit8(0x01);
+                self.emit_modrm_mr(&dst, &src);
+            },
+            (_, Operand::Immediate(_)) if dst.is_register_or_memory() && src.fits_in_i8() => {
+                self.emit_rex_for_slash(&dst, RexW::Yes);
+                self.emit8(0x83);
+                self.emit_modrm_slash(0, &dst);
+                self.emit8(src.offset_or_immediate() as u8);
+            },
+            (_, Operand::Immediate(_)) if dst.is_register_or_memory() && src.fits_in_i32() => {
+                self.emit_rex_for_slash(&dst, RexW::Yes);
+                self.emit8(0x81);
+                self.emit_modrm_slash(0, &dst);
+                self.emit32(src.offset_or_immediate() as u32);
+            },
+            (Operand::Register(_, true), Operand::Register(_, true)) => {
+                self.emit8(0xf2);
+                self.emit8(0x0f);
+                self.emit8(0x58);
+                self.emit_modrm_rm(&dst, &src);
+            }
+            _ => {
+                unreachable!("add: Invalid operands");
+            }
+        }
+    }
+
+}
+
+pub struct JitFunction {
+    function: fn() -> i64,
+    code_ptr: *mut c_void,
+}
+
+impl JitFunction {
+    pub fn new(machine_code: &[u8]) -> Self {
+        let code_size = machine_code.len();
         let code_ptr = unsafe {
             VirtualAlloc(
                 ptr::null_mut(),
@@ -412,7 +578,7 @@ impl JitCompiler {
         // Copy machine code to allocated memory
         unsafe {
             ptr::copy_nonoverlapping(
-                self.assembler.machine_code.as_ptr(),
+                machine_code.as_ptr(),
                 code_ptr as *mut u8,
                 code_size,
             );
@@ -420,16 +586,53 @@ impl JitCompiler {
 
         // Define a function pointer with the appropriate signature
         type JitFunction = fn() -> i64;
-        let jit_function: JitFunction = unsafe { std::mem::transmute(code_ptr) };
-
-        // Call the generated code
-        let result = jit_function();
-
-        // Free the allocated virtual memory
-        unsafe {
-            VirtualFree(code_ptr, 0, MEM_RELEASE);
+        let function: JitFunction = unsafe { std::mem::transmute(code_ptr) };
+        Self {
+            function,
+            code_ptr,
         }
+    }
 
-        println!("JIT Result: {:x}", result);
+    pub fn run(&self) -> i64 {
+        (self.function)()
+    }
+}
+
+impl Drop for JitFunction {
+    fn drop(&mut self) {
+        unsafe {
+            VirtualFree(self.code_ptr, 0, MEM_RELEASE);
+        }
+    }
+}
+
+fn test(x: u64) -> u64 {
+    println!("Hello from test! {x:x?}");
+    return 0x69420;
+}
+
+impl JitCompiler {
+    pub fn new() -> Self {
+        Self {
+            assembler: Assembler::new(),
+        }
+    }
+
+    pub fn compile(&mut self, ast: Box<dyn Node>) {
+        self.assembler.enter();
+        self.assembler.mov(Operand::Register(Register::RCX, false), Operand::Immediate(Immediate::Immediate64(0x69)));
+        self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(test as u64)));
+        self.assembler.emit8(0xff);
+        self.assembler.emit_modrm_slash(2, &Operand::Register(Register::RAX, false));
+        self.assembler.exit();
+
+        println!("{:x?}", self.assembler.machine_code);
+        disassemble_machine_code(&self.assembler.machine_code);
+
+    }
+
+    pub fn run(&mut self) { 
+        let jit_function = JitFunction::new(&self.assembler.machine_code);
+        println!("JIT Result: {:x}", jit_function.run());
     }
 }
