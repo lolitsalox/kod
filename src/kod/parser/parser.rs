@@ -76,16 +76,18 @@ impl Parser {
         let left = self.parse_commas()?;
         if left.is_none() { return Ok(None); }
 
-        if self.lexer.peek().unwrap().token_type != TokenType::EQUALS {
+        let op = self.lexer.peek().unwrap().token_type;
+
+        if !vec![TokenType::EQUALS, TokenType::AddEq, TokenType::SubEq, TokenType::MulEq, TokenType::DivEq, TokenType::ModEq].contains(&op) {
             return Ok(left);
         }
 
-        self.eat(&TokenType::EQUALS)?;
+        self.eat(&op)?;
 
         let right = self.parse_assignment()?;
         if right.is_none() { return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into()); }
 
-        Ok(Some(Box::new(AssignmentNode { left: left.unwrap(), right: right.unwrap() })))
+        Ok(Some(Box::new(AssignmentNode { left: left.unwrap(), right: right.unwrap(), op })))
     }
 
     fn parse_commas(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
@@ -234,16 +236,16 @@ impl Parser {
             TokenType::DOT => {
                 self.eat(&TokenType::DOT)?;
 
-                dbg!(&value);
-
                 let field = self.parse_id()?;
                 return self.parse_after(Some(Box::new(AccessNode { value: value.unwrap(), field: field.unwrap(), load_self: false })));
             },
 
             TokenType::LBRACKET => {
+                
                 self.eat(&TokenType::LBRACKET)?;
-
                 let subscript = self.parse_statement()?;
+                self.eat(&TokenType::RBRACKET)?;
+
                 return self.parse_after(Some(Box::new(SubscriptNode { value: value.unwrap(), subscript: subscript.unwrap() })));
             },
 

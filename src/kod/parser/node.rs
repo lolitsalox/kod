@@ -93,6 +93,7 @@ pub struct FuncCallNode {
 pub struct AssignmentNode {
     pub left: Box<dyn Node>,
     pub right: Box<dyn Node>,
+    pub op: TokenType,
 }
 
 #[derive(Debug)]
@@ -181,7 +182,7 @@ impl Node for BlockNode {
 
 impl Node for AssignmentNode {
     fn to_string(&self) -> String {
-        return format!("{} = {}", self.left.to_string(), self.right.to_string());
+        return format!("{} {} {}", self.left.to_string(), get_symbols().iter().find(|x| x.1 == &self.op).unwrap().0, self.right.to_string());
     }
 }
 
@@ -237,8 +238,6 @@ impl Node for WhileNode {
 
 impl Node for TupleNode {
     fn to_string(&self) -> String {
-        dbg!(self.values.len());
-        dbg!(&self.values);
         let delims = if self.is_list {
             ("[", "]")
         } else {

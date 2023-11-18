@@ -145,6 +145,11 @@ pub fn get_symbols() -> HashMap<&'static str, TokenType> {
         ("~", TokenType::NOT),
         ("!", TokenType::BoolNot),
         (".", TokenType::DOT),
+        ("+=", TokenType::AddEq),
+        ("-=", TokenType::SubEq),
+        ("/=", TokenType::DivEq),
+        ("*=", TokenType::MulEq),
+        ("%=", TokenType::ModEq),
     ])
 }
 
