@@ -31,6 +31,11 @@ pub struct Assembler {
     machine_code: Vec<u8>,
 }
 
+pub struct Label {
+    offset: Option<usize>,
+    jump_slots: Vec<usize>,
+}
+
 pub struct JitCompiler {
     pub assembler: Assembler,
 }
@@ -39,21 +44,17 @@ pub struct ModRm {
     pub raw: u8,
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum ModRmEnum {
-    Mem,
-    MemDisp8,
-    MemDisp32,
-    Reg,
+    Mem         = 0b00,
+    MemDisp8    = 0b01,
+    MemDisp32   = 0b10,
+    Reg         = 0b11,
 }
 
 impl ModRmEnum {
     pub fn encode(&self) -> u8 {
-        match self {
-            ModRmEnum::Mem => 0b00,
-            ModRmEnum::MemDisp8 => 0b01,
-            ModRmEnum::MemDisp32 => 0b10,
-            ModRmEnum::Reg => 0b11,
-        }
+        *self as u8
     }
 }
 
@@ -73,6 +74,7 @@ impl ModRm {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Rex {
     pub raw: u8,
     /*
@@ -85,17 +87,26 @@ pub struct Rex {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Patchable {
+    No = 0,
+    Yes = 1,
+}
+
+impl Patchable {
+    pub fn encode(&self) -> u8 {
+        *self as u8
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum RexW {
-    Yes,
-    No,
+    No = 0,
+    Yes = 1,
 }
 
 impl RexW {
     pub fn encode(&self) -> u8 {
-        match self {
-            RexW::Yes => 1,
-            RexW::No => 0,
-        }
+        *self as u8
     }
 }
 
@@ -199,6 +210,49 @@ impl Immediate {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Condition {
+    Overflow,
+    EqualTo,
+    NotEqualTo,
+    UnsignedGreaterThan,
+    UnsignedGreaterThanOrEqualTo,
+    UnsignedLessThan,
+    UnsignedLessThanOrEqualTo,
+    ParityEven,
+    ParityOdd,
+    SignedGreaterThan,
+    SignedGreaterThanOrEqualTo,
+    SignedLessThan,
+    SignedLessThanOrEqualTo,
+    Unordered,
+    NotUnordered,
+    Below,
+    BelowOrEqual,
+    Above,
+    AboveOrEqual,
+}
+
+impl Condition {
+    pub fn encode(&self) -> u8 {
+        match self {
+            Condition::Overflow => 0x0,
+            Condition::EqualTo => 0x4,
+            Condition::NotEqualTo => 0x5,
+            Condition::UnsignedGreaterThan | Condition::Above => 0x7,
+            Condition::UnsignedGreaterThanOrEqualTo | Condition::AboveOrEqual => 0x3,
+            Condition::UnsignedLessThan | Condition::Below => 0x2,
+            Condition::UnsignedLessThanOrEqualTo | Condition::BelowOrEqual => 0x6,
+            Condition::ParityEven | Condition::Unordered => 0xA,
+            Condition::ParityOdd | Condition::NotUnordered => 0xB,
+            Condition::SignedGreaterThan => 0xF,
+            Condition::SignedGreaterThanOrEqualTo => 0xD,
+            Condition::SignedLessThan => 0xC,
+            Condition::SignedLessThanOrEqualTo => 0xE,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Operand {
     Register(Register, bool), // reg, is_f
     Memory(Register, u64), // (base, offset)
@@ -256,6 +310,44 @@ impl Operand {
     pub fn fits_in_i32(&self) -> bool {
         self.assert_immediate();
         return self.offset_or_immediate() as i64 <= i32::MAX as i64;
+    }
+}
+
+impl Label {
+    pub fn new() -> Self {
+        Self {
+            offset: None,
+            jump_slots: Vec::new(),
+        }
+    }
+
+    pub fn add_jump(&mut self, assembler: &mut Assembler, offset: usize) {
+        self.jump_slots.push(offset);
+        if self.offset.is_some() {
+            self.link_jump(assembler, offset);
+        }
+    }
+
+    pub fn link(&mut self, assembler: &mut Assembler) {
+        self.link_to(assembler, assembler.machine_code.len());
+    }
+
+    pub fn link_to(&mut self, assembler: &mut Assembler, link_offset: usize) {
+        assert!(self.offset.is_none());
+
+        self.offset = Some(link_offset);
+        for offset in &self.jump_slots {
+            self.link_jump(assembler, *offset);
+        }
+    }
+
+    fn link_jump(&self, assembler: &mut Assembler, offset_in_instructions: usize) {
+        let offset = self.offset.unwrap() - offset_in_instructions;
+        let jump_slot = offset_in_instructions - 4;
+        assembler.machine_code[jump_slot + 0] = ((offset >> 0) & 0xff) as u8;
+        assembler.machine_code[jump_slot + 1] = ((offset >> 8) & 0xff) as u8;
+        assembler.machine_code[jump_slot + 2] = ((offset >> 16) & 0xff) as u8;
+        assembler.machine_code[jump_slot + 3] = ((offset >> 24) & 0xff) as u8;
     }
 }
 
@@ -342,6 +434,29 @@ impl Assembler {
     fn emit_modrm_slash(&mut self, slash: u8, rm: &Operand) {
         let mut raw = ModRm::new(rm.register_or_memory_base_to_underlying(), slash, 0);
         self.emit_modrm(&mut raw, rm);
+    }
+
+    fn emit_rex_for_rm(&mut self, dst: &Operand, src: &Operand, w: RexW) {
+        assert!(src.is_register_or_memory() || match &src {
+            Operand::Register(_, true) => true,
+            _ => false
+        });
+
+        assert!(match &dst {
+            Operand::Register(_, true) | Operand::Register(_, false) => true,
+            _ => false
+        });
+
+        if w == RexW::No && dst.register_or_memory_base_to_underlying() < 8 && src.register_or_memory_base_to_underlying() < 8 { return; }
+
+        let rex = Rex::new(
+            (src.register_or_memory_base_to_underlying() >= 8) as u8,
+            0, 
+            (dst.register_or_memory_base_to_underlying() >= 8) as u8, 
+            w.encode()
+        );
+
+        self.emit8(rex.encode()); 
     }
 
     fn emit_rex_for_mr(&mut self, dst: &Operand, src: &Operand, w: RexW) {
@@ -562,6 +677,133 @@ impl Assembler {
         }
     }
 
+    pub fn inc32(&mut self, op: &Operand, label: Option<&mut Label>) {
+        match &op {
+            _ if op.is_register_or_memory() => {
+                self.emit_rex_for_slash(op, RexW::No);
+                self.emit8(0xff);
+                self.emit_modrm_slash(0, op);
+            },
+            _ => {
+                unreachable!("inc32: Invalid operands");
+            }
+        }
+
+        if let Some(label) = label {
+            // jump_if_label(Condition::Overflow, label);
+        }
+    }
+
+    pub fn dec32(&mut self, op: &Operand, label: Option<&mut Label>) {
+        match &op {
+            _ if op.is_register_or_memory() => {
+                self.emit_rex_for_slash(op, RexW::No);
+                self.emit8(0xff);
+                self.emit_modrm_slash(1, op);
+            },
+            _ => {
+                unreachable!("dec32: Invalid operands");
+            }
+        }
+
+        if let Some(label) = label {
+            // jump_if_label(Condition::Overflow, label);
+        }
+    }
+
+    pub fn jump(&mut self) -> Label {
+        // jmp target (RIP-relative 32bit)
+        self.emit8(0xe9);
+        self.emit32(0xdeadbeef);
+        let mut label = Label::new();
+        label.add_jump(self, self.machine_code.len());
+        label
+    }
+
+    pub fn jump_label(&mut self, label: &mut Label) {
+        self.emit8(0xe9);
+        self.emit32(0xdeadbeef);
+        label.add_jump(self, self.machine_code.len());
+    }
+
+    pub fn jump_op(&mut self, op: &Operand) {
+        self.emit_rex_for_slash(op, RexW::No);
+        self.emit8(0xff);
+        self.emit_modrm_slash(4, op);
+    }
+
+    pub fn jump_if_label(&mut self, condition: Condition, label: &mut Label) {
+        self.emit8(0x0f);
+        self.emit8(0x80 | condition.encode());
+        self.emit32(0xdeadbeef);
+        label.add_jump(self, self.machine_code.len());
+    }
+
+    pub fn jump_if_cmp(&mut self, lhs: &Operand, condition: Condition, rhs: &Operand, label: &mut Label) {
+        self.cmp(lhs, rhs);
+        self.jump_if_label(condition, label);
+    }
+
+    pub fn set_if(&mut self, condition: Condition, dst: &Operand) {
+        self.emit_rex_for_slash(dst, RexW::No);
+        self.emit8(0x0f);
+        self.emit8(0x90 | condition.encode());
+        self.emit_modrm_slash(0, dst);
+    }
+
+    pub fn mov_if(&mut self, condition: Condition, dst: &Operand, src: &Operand) {
+        assert!(match (&dst, &src) {
+            (Operand::Register(_, _), Operand::Register(_, _)) => true,
+            _ => false
+        });
+
+        self.emit_rex_for_mr(dst, src, RexW::Yes);
+        self.emit8(0x0f);
+        self.emit8(0x40 | condition.encode());
+        self.emit_modrm_rm(dst, src);
+    }
+
+    pub fn test(&mut self, lhs: &Operand, rhs: &Operand) {
+        unimplemented!("test");
+    }
+
+    pub fn cmp(&mut self, lhs: &Operand, rhs: &Operand) {
+        match (&lhs, &rhs) {
+            (Operand::Register(_, _), Operand::Immediate(_)) if rhs.offset_or_immediate() == 0 => {
+                self.test(&lhs, &rhs);
+            },
+            (_, Operand::Register(_, _)) if lhs.is_register_or_memory() => {
+                self.emit_rex_for_mr(lhs, rhs, RexW::Yes);
+                self.emit8(0x39);
+                self.emit_modrm_mr(lhs, rhs);
+            },
+            (_, Operand::Immediate(_)) if lhs.is_register_or_memory() && rhs.fits_in_i8() => {
+                self.emit_rex_for_slash(lhs, RexW::Yes);
+                self.emit8(0x83);
+                self.emit_modrm_slash(7, lhs);
+                self.emit8(rhs.offset_or_immediate() as u8);
+            },
+            (_, Operand::Immediate(_)) if lhs.is_register_or_memory() && rhs.fits_in_i32() => {
+                self.emit_rex_for_slash(lhs, RexW::Yes);
+                self.emit8(0x81);
+                self.emit_modrm_slash(7, lhs);
+                self.emit32(rhs.offset_or_immediate() as u32);
+            },
+            (Operand::Register(_, true), Operand::Register(_, true)) |
+            (Operand::Register(_, true), Operand::Memory(_, _)) => {
+                // ucomisd lhs, rhs
+                self.emit8(0x66);
+                self.emit_rex_for_rm(lhs, rhs, RexW::No);
+                self.emit8(0x0f);
+                self.emit8(0x2e);
+                self.emit_modrm_rm(lhs, rhs);
+            }
+            _ => {
+                unreachable!("cmp: Invalid operands");
+            }
+        }
+    }
+
 }
 
 pub struct JitFunction {
@@ -631,10 +873,14 @@ impl JitCompiler {
 
     pub fn compile(&mut self, ast: Box<dyn Node>) {
         self.assembler.enter();
+        let mut label = Label::new();
+        self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(69)));
+        self.assembler.jump_if_cmp(&Operand::Register(Register::RAX, false), Condition::AboveOrEqual, &Operand::Immediate(Immediate::Immediate64(69)), &mut label);
         self.assembler.mov(Operand::Register(Register::RCX, false), Operand::Immediate(Immediate::Immediate64(0x69)));
         self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(test as u64)));
         self.assembler.emit8(0xff);
         self.assembler.emit_modrm_slash(2, &Operand::Register(Register::RAX, false));
+        label.link(&mut self.assembler);
         self.assembler.exit();
 
         println!("{:x?}", self.assembler.machine_code);
