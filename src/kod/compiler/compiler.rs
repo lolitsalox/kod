@@ -159,7 +159,7 @@ pub enum Register {
 // to_underlying for register
 impl Register {
     fn encode(&self) -> u8 {
-        match self {
+        let v = match self {
             Register::RAX | Register::XMM0  => 0,
             Register::RCX | Register::XMM1  => 1,
             Register::RDX | Register::XMM2  => 2,
@@ -176,7 +176,8 @@ impl Register {
             Register::R13 | Register::XMM13 => 13,
             Register::R14 | Register::XMM14 => 14,
             Register::R15 | Register::XMM15 => 15,
-        }
+        };
+        v & 0x7
     }
 }
 
@@ -482,11 +483,21 @@ impl Assembler {
     }
 
     pub fn push_callee_saved_registers(&mut self) {
-
+        self.push(Operand::Register(Register::RBX, false));
+        self.push(Operand::Register(Register::RBP, false));
+        self.push(Operand::Register(Register::R12, false));
+        self.push(Operand::Register(Register::R13, false));
+        self.push(Operand::Register(Register::R14, false));
+        self.push(Operand::Register(Register::R15, false));
     }
 
     pub fn pop_callee_saved_registers(&mut self) {
-
+        self.pop(Operand::Register(Register::R15, false));
+        self.pop(Operand::Register(Register::R14, false));
+        self.pop(Operand::Register(Register::R13, false));
+        self.pop(Operand::Register(Register::R12, false));
+        self.pop(Operand::Register(Register::RBP, false));
+        self.pop(Operand::Register(Register::RBX, false));
     }
 
     pub fn sub(&mut self, dst: Operand, src: Operand) {
