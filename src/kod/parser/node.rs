@@ -124,7 +124,7 @@ pub struct SubscriptNode {
 
 #[derive(Debug)]
 pub struct ReturnNode {
-    pub value: Box<dyn Node>,
+    pub value: Option<Box<dyn Node>>,
 }
 
 #[derive(Debug)]
@@ -200,7 +200,7 @@ impl Node for UnaryOpNode {
 
 impl Node for ReturnNode {
     fn to_string(&self) -> String {
-        return format!("return {}", self.value.to_string());
+        return format!("return {}", if self.value.is_some() { self.value.as_deref().unwrap().to_string() } else { "null".to_string() });
     }
 }
 
@@ -226,13 +226,13 @@ impl Node for SubscriptNode {
 
 impl Node for IfNode {
     fn to_string(&self) -> String {
-        return format!("if {}:\n{}", self.condition.to_string(), self.block.to_string());
+        return format!("if {} {{\n{}}}", self.condition.to_string(), self.block.to_string());
     }
 }
 
 impl Node for WhileNode {
     fn to_string(&self) -> String {
-        return format!("while {}:\n{}", self.condition.to_string(), self.block.to_string());
+        return format!("while {} {{\n{}}}", self.condition.to_string(), self.block.to_string());
     }
 }
 

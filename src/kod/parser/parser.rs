@@ -1,5 +1,5 @@
 use super::node::*;
-use crate::kod::lexer::{lexer::Lexer, token::{Token, TokenType}};
+use crate::kod::lexer::{lexer::Lexer, token::{Token, TokenType, KeywordType}};
 
 #[derive(Debug)]
 pub struct Parser {
@@ -257,12 +257,17 @@ impl Parser {
 
     fn parse_factor(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
         match self.lexer.peek().unwrap().token_type {
+
             TokenType::INT => self.parse_int(),
             TokenType::FLOAT => self.parse_float(),
             TokenType::STRING => self.parse_string(),
+
             TokenType::ID => self.parse_id(),
+
             TokenType::LPAREN => self.parse_tuple(false),
             TokenType::LBRACKET => self.parse_list(),
+
+            TokenType::KEYWORD => self.parse_keyword(),
 
             TokenType::EndOfFile | TokenType::NewLine => Ok(None),
 
@@ -286,6 +291,45 @@ impl Parser {
 
     fn parse_id(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
         Ok(Some(Box::new(IdNode { value: self.lexer.next()?.value })))
+    }
+
+    fn parse_keyword(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        let ktype = self.lexer.next()?.keyword_type;
+
+        match ktype {
+            KeywordType::If => self.parse_if(),
+            KeywordType::While => self.parse_while(),
+            KeywordType::Return => self.parse_return(),
+            _ => Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into()),
+        }
+    }
+
+    fn parse_condition_block(&mut self) -> Result<(Box<dyn Node>, Box<dyn Node>), Box<dyn std::error::Error>> {
+        let condition = self.parse_statement()?;
+        if condition.is_none() {
+            return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
+        }
+
+        let block = self.parse_block()?;
+        if block.is_none() {
+            return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
+        }
+
+        return Ok((condition.unwrap(), block.unwrap()));
+    }
+
+    fn parse_if(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        let (condition, block) = self.parse_condition_block()?;
+        return Ok(Some(Box::new(IfNode { condition, block })));
+    }
+
+    fn parse_while(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        let (condition, block) = self.parse_condition_block()?;
+        return Ok(Some(Box::new(WhileNode { condition, block })));
+    }
+
+    fn parse_return(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        Ok(Some(Box::new(ReturnNode { value: self.parse_statement()? })))
     }
 
     fn parse_binary_op(&mut self, ops: Vec<TokenType>, parse_func: fn(&mut Self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>>) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {

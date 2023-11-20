@@ -155,7 +155,7 @@ impl Lexer {
         }
 
         self.position += 1;
-        self.ch = if self.position < self.contents.len() { self.contents.chars().nth(self.position).unwrap() } else { '\0' };
+        self.ch = self.contents.chars().nth(self.position).unwrap_or_default();
     }
 
     fn can_advance(&mut self) -> bool {
@@ -187,7 +187,9 @@ impl Lexer {
             ttype = TokenType::KEYWORD;
         }
 
-        Ok(Token::new(ttype, identifier, this_line, this_column))
+        let mut tok = Token::new(ttype, identifier, this_line, this_column);
+        tok.keyword_type = ktype;
+        Ok(tok)
     }
 
     fn collect_number(&mut self) -> Result<Token, LexerError> {
