@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use crate::kod::lexer::token::{TokenType, get_symbols};
+use crate::kod::compiler::bytekod::{Code, Module, Opcode};
 
 pub trait Node: Debug {
     fn to_string(&self) -> String;
@@ -57,6 +58,8 @@ pub trait Node: Debug {
     fn get_string_mut(&mut self) -> Option<&mut StringNode> {
         None
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code);
 
     // fn compile(&self, module: &mut CompiledModule, code: &mut Code) {
     //     panic!("Unimplemented compile: {}", self.to_string());
@@ -178,11 +181,30 @@ impl Node for BlockNode {
     fn take_block(self: Box<Self>) -> Option<BlockNode> {
         Some(*self)
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        code.code.clear();
+
+        for statement in &self.statements {
+            statement.compile(module, code);
+            if !statement.pushes() { continue; }
+            if self.statements.last() != Some(&*statement) {
+                code.emit8(Opcode::POP_TOP as u8);
+            }
+
+        }
+
+
+    }
 }
 
 impl Node for AssignmentNode {
     fn to_string(&self) -> String {
         return format!("{} {} {}", self.left.to_string(), get_symbols().iter().find(|x| x.1 == &self.op).unwrap().0, self.right.to_string());
+    }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
     }
 }
 
@@ -190,17 +212,29 @@ impl Node for BinaryOpNode {
     fn to_string(&self) -> String {
         return format!("({} {} {})", self.left.to_string(), get_symbols().iter().find(|x| x.1 == &self.op).unwrap().0, self.right.to_string());
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for UnaryOpNode {
     fn to_string(&self) -> String {
         return format!("({}{})", get_symbols().iter().find(|x| x.1 == &self.op).unwrap().0, self.value.to_string());
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for ReturnNode {
     fn to_string(&self) -> String {
         return format!("return {}", if self.value.is_some() { self.value.as_deref().unwrap().to_string() } else { "null".to_string() });
+    }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
     }
 }
 
@@ -216,11 +250,19 @@ impl Node for AccessNode {
     fn get_access_mut(&mut self) -> Option<&mut AccessNode> {
         Some(self)
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for SubscriptNode {
     fn to_string(&self) -> String {
         return format!("{}[{}]", self.value.to_string(), self.subscript.to_string());
+    }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
     }
 }
 
@@ -228,11 +270,19 @@ impl Node for IfNode {
     fn to_string(&self) -> String {
         return format!("if {} {{\n{}}}", self.condition.to_string(), self.block.to_string());
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for WhileNode {
     fn to_string(&self) -> String {
         return format!("while {} {{\n{}}}", self.condition.to_string(), self.block.to_string());
+    }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
     }
 }
 
@@ -257,6 +307,10 @@ impl Node for TupleNode {
     fn take_tuple(self: Box<Self>) -> Option<TupleNode> {
         Some(*self)
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for IntNode {
@@ -270,6 +324,10 @@ impl Node for IntNode {
 
     fn get_int_mut(&mut self) -> Option<&mut IntNode> {
         Some(self)
+    }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
     }
 }
 
@@ -285,6 +343,10 @@ impl Node for FloatNode {
     fn get_float_mut(&mut self) -> Option<&mut FloatNode> {
         Some(self)
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for StringNode {
@@ -298,6 +360,10 @@ impl Node for StringNode {
 
     fn get_string_mut(&mut self) -> Option<&mut StringNode> {
         Some(self)
+    }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
     }
 }
 
@@ -313,16 +379,28 @@ impl Node for IdNode {
     fn take_id(self: Box<Self>) -> Option<IdNode> {
         Some(*self)
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for FuncDefNode {
     fn to_string(&self) -> String {
         return format!("{}({}) {{\n{}}}", self.name.to_string(), self.params.iter().map(|x| { x.to_string() }).collect::<Vec<String>>().join(", "), self.body.to_string());
     }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
+    }
 }
 
 impl Node for FuncCallNode {
     fn to_string(&self) -> String {
         return format!("{}({})", self.callie.to_string(), self.args.iter().map(|x| { x.to_string() }).collect::<Vec<String>>().join(", "));
+    }
+
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        todo!()
     }
 }

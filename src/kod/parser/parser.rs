@@ -29,7 +29,7 @@ impl std::error::Error for ParserError {}
 impl Parser {
     pub fn new(lexer: Lexer) -> Parser {
         Parser {
-            lexer: lexer,
+            lexer,
             getting_params: false,
         }
     }

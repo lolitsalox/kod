@@ -2,6 +2,7 @@ mod kod;
 use std::path;
 
 use kod::{lexer::lexer::Lexer, parser::parser::Parser, compiler::compiler::JitCompiler};
+use crate::kod::compiler::bytekod::{Code, Module};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let args: Vec<String> = std::env::args().collect();
@@ -17,14 +18,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lexer = Lexer::new(&filename, &contents);
     let mut parser = Parser::new(lexer);
     // write the output of parser.parse()?.to_string() to a file
-    let tree = parser.parse()?.to_string();
-    std::fs::write(path::Path::new("output.txt"), &tree).expect("Unable to write file");
-    print!("{tree}");
+    let tree = parser.parse().unwrap();
+    std::fs::write(path::Path::new("output.txt"), &tree.to_string()).expect("Unable to write file");
+    print!("{}", tree.to_string());
 
-    let mut compiler = JitCompiler::new();
+    let mut module = Module { name: filename.to_string(), name_pool: vec![], constant_pool: vec![], entry: Code::new("__main__".to_string(), vec![], vec![]) };
+    let mut entry = Code::new("__main__".to_string(), vec![], vec![]);
+    tree.compile(&mut module, &mut entry);
 
-    compiler.compile(parser.parse()?);
-    compiler.run();
+    module.entry = entry;
 
     Ok(())
 }
