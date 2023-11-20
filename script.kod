@@ -1,8 +1,9 @@
-main(a,b,c) {
-    print([1,2,3].join(", "))
-    x = a * b + c
-    a[1, 2].b, y = x = 4, 10**2
 
-    x += 1 %= 2
+x = 10
+if x < 20 {
+    print("Yes!")
 }
 
+print("done")
+
+// שלום("לך")
