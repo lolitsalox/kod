@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:#?}", module.name_pool);
 
     let mut vm = VM::new(module);
-    vm.run(&tree);
+    vm.run();
 
     Ok(())
 }

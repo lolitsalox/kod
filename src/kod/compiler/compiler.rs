@@ -4,10 +4,92 @@ use winapi::um::memoryapi::{VirtualAlloc, VirtualFree};
 use winapi::um::winnt::{MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE};
 
 use crate::kod::parser::node::Node;
-use super::assembler::{Assembler, Immediate, Operand, Register, disassemble_machine_code};
+use super::assembler::{Assembler, Immediate, Operand, Register, disassemble_machine_code, Condition, Label};
+
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Object(u64);
+
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ObjectTag {
+    Int,
+    Null,
+    Float,
+    Pointer,
+    Code,
+    NativeFunc,
+}
+
+impl ObjectTag {
+    pub fn from(value: u16) -> Self {
+        match value {
+            0 => Self::Int,
+            1 => Self::Null,
+            2 => Self::Float,
+            3 => Self::Pointer,
+            4 => Self::Code,
+            5 => Self::NativeFunc,
+            _ => panic!("Invalid object tag"),
+        }
+    }
+}
+
+impl Object {
+    pub fn new(value: u64, object_tag: ObjectTag) -> Self {
+        Self(((object_tag as u64) << 48) as u64 | (value & 0x0000_FFFF_FFFF_FFFF) as u64)
+    }
+
+    pub fn from(value: u64) -> Self {
+        Self((value & 0xFFFF_0000_0000_0000) | (value & 0x0000_FFFF_FFFF_FFFF))
+    }
+
+    pub fn encode(&self) -> u64 {
+        self.0
+    }
+
+    pub fn value(&self) -> u64 {
+        self.0 & 0x0000_FFFF_FFFF_FFFF
+    }
+
+    pub fn tag(&self) -> ObjectTag {
+        ObjectTag::from(((self.0 >> 48) & 0xFFFF) as u16)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum InstructionEnum {
+    Mov(Operand, Operand),
+    Push(Operand),
+    Pop(Operand),
+    Jump(u32), // bytecode offset to jump to
+    JumpIfCmp(Operand, Condition, Operand, u32), // lhs, cond, rhs, jump_to in bytecode
+    Exit,
+    Call(u64),
+}
+
+#[derive(Debug, Clone)]
+pub struct Instruction {
+    bytecode_offset: u32,
+    offset: usize,
+    ins: InstructionEnum,
+    label: Label,
+}
+
+impl Instruction {
+    pub fn new(bytecode_offset: u32, ins: InstructionEnum) -> Self {
+        Self {
+            bytecode_offset,
+            offset: 0,
+            ins,
+            label: Label::new(),
+        }
+    }
+}
 
 pub struct JitCompiler {
     pub assembler: Assembler,
+    instructions: Vec<Instruction>,
 }
 
 pub struct JitFunction {
@@ -54,9 +136,6 @@ impl JitFunction {
         (self.function)()
     }
 
-    pub fn optimize(&mut self) {
-        // optimize pushes and pops into movs
-    }
 }
 
 impl Drop for JitFunction {
@@ -72,14 +151,196 @@ impl JitCompiler {
     pub fn new() -> Self {
         Self {
             assembler: Assembler::new(),
+            instructions: Vec::new(),
         }
     }
 
     pub fn compile(&mut self) {
+        self.optimize();
 
+        self.assembler.enter();
+
+        for ins_index in 0..self.instructions.len() {
+            self.instructions[ins_index].offset = self.assembler.machine_code.len();
+            let ins = &self.instructions[ins_index].ins;
+            match ins {
+                InstructionEnum::Jump(jump_to) => {
+                    self.instructions[ins_index].label = self.assembler.jump();
+                },
+                InstructionEnum::JumpIfCmp(lhs, condition, rhs, jump_to) => {
+                    let mut label = Label::new();
+                    self.assembler.jump_if_cmp(&lhs, *condition, &rhs, &mut label);
+                    self.instructions[ins_index].label = label;
+                }
+                InstructionEnum::Pop(op) => {
+                    self.assembler.pop(*op);
+                },
+                InstructionEnum::Push(op) => {
+                    self.assembler.push(*op);
+                },
+                InstructionEnum::Mov(dst, src) => {
+                    self.assembler.mov(*dst, *src);
+                },
+                InstructionEnum::Exit => {
+                    self.assembler.exit();
+                },
+                InstructionEnum::Call(callee) => {
+                    self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(*callee)));
+                    self.assembler.call_rax();
+                }
+                _ => unimplemented!("{:#?}", ins),
+            };
+        }
+
+        for ins_index in 0..self.instructions.len() {
+            let ins = &self.instructions[ins_index].ins;
+            match ins {
+                InstructionEnum::Jump(jump_to) => {
+                    let ins_offset = self.instructions.iter().find(|ins| { ins.bytecode_offset == *jump_to })
+                        .expect("Failed to find jump offset")
+                        .offset;
+
+                    self.instructions[ins_index].label.link_to(&mut self.assembler, ins_offset);
+                },
+                InstructionEnum::JumpIfCmp(lhs, condition, rhs, jump_to) => {
+                    let ins_offset = self.instructions.iter().find(|ins| { ins.bytecode_offset == *jump_to })
+                        .expect("Failed to find jump offset")
+                        .offset;
+
+                    self.instructions[ins_index].label.link_to(&mut self.assembler, ins_offset);
+                },
+                _ => {},
+            }
+        }
+
+        println!("{:?}", self.instructions);
         println!("{:x?}", self.assembler.machine_code);
         disassemble_machine_code(&self.assembler.machine_code);
+    }
 
+    fn optimize(&mut self) {
+        let mut new_instructions: Vec<Instruction> = vec![];
+        let mut i: usize = 0;
+
+        while i < self.instructions.len() {
+            let ins = &self.instructions[i].ins;
+            match ins {
+                InstructionEnum::Mov(dst, src) => {
+                    // mov rax, src
+                    // push rax
+                    // pop dst
+                    // ------------
+                    // mov dst, src
+                    if let Some(ins2) = self.instructions.get(i + 1) {
+                        match ins2.ins {
+                            InstructionEnum::Push(_) => {
+                                if let Some(ins3) = self.instructions.get(i + 2) {
+                                    match ins3.ins {
+                                        InstructionEnum::Pop(dst) => {
+                                            new_instructions.push(Instruction::new(self.instructions[i].bytecode_offset, InstructionEnum::Mov(dst, *src)));
+                                            i += 3;
+                                            continue;
+                                        }
+                                        _ => {
+                                            // idk
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                // idk
+                            }
+                        }
+                    }
+                },
+                InstructionEnum::Push(op) => {
+                    // push op
+                    // pop op
+                    // ------ nothing
+                    if let Some(ins2) = self.instructions.get(i + 1) {
+                        match ins2.ins {
+                            InstructionEnum::Pop(_) => {
+                                i += 2;
+                                continue;
+                            }
+                            _ => {
+                                // idk
+                            }
+                        }
+                    }
+                },
+                _ => {
+                },
+            }
+            new_instructions.push(self.instructions[i].clone());
+            i += 1;
+        }
+
+        self.instructions = new_instructions;
+    }
+
+    pub fn compile_jump(&mut self, bytecode_offset: u32, jump_to: u32) {
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Jump(jump_to)));
+    }
+
+    pub fn compile_pop_jump_if_false(&mut self, bytecode_offset: u32, jump_to: u32) {
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Pop(Operand::Register(Register::RAX, false))));
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::JumpIfCmp(
+            Operand::Register(Register::RAX, false),
+            Condition::EqualTo,
+            Operand::Immediate(Immediate::Immediate8(0)),
+            jump_to))
+        );
+    }
+
+    pub fn compile_pop(&mut self, bytecode_offset: u32, register: Register) {
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Pop(Operand::Register(register, false))));
+    }
+
+    pub fn compile_push(&mut self, bytecode_offset: u32, op: Operand) {
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Push(op)));
+    }
+
+    pub fn compile_push_immediate(&mut self, bytecode_offset: u32, immediate: Immediate) {
+        self.instructions.push(Instruction::new(bytecode_offset,
+                                                InstructionEnum::Mov(
+                                                    Operand::Register(Register::RAX, false),
+                                                    Operand::Immediate(immediate)
+                                                )));
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Push(Operand::Register(Register::RAX, false))));
+    }
+
+    pub fn compile_return(&mut self, bytecode_offset: u32) {
+        self.compile_pop(bytecode_offset, Register::RAX);
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Exit));
+    }
+
+    pub fn compile_mov(&mut self, bytecode_offset: u32, dst: Operand, src: Operand) {
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Mov(dst, src)));
+    }
+
+    pub fn compile_call(&mut self, bytecode_offset: u32, callee: u64, args: Vec<Operand>) {
+        let integer_regs = vec![
+            Operand::Register(Register::RCX, false),
+            Operand::Register(Register::RDX, false),
+            Operand::Register(Register::R8, false),
+            Operand::Register(Register::R9, false)
+        ];
+
+        let float_regs = vec![
+            Operand::Register(Register::XMM0, true),
+            Operand::Register(Register::XMM1, true),
+            Operand::Register(Register::XMM2, true),
+            Operand::Register(Register::XMM3, true)
+        ];
+
+        assert!(args.len() <= integer_regs.len());
+
+        for i in 0..args.len() {
+            self.compile_mov(bytecode_offset, integer_regs[i], args[i]);
+        }
+
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Call(callee)));
     }
 
     pub fn run(&mut self) -> u64 { 

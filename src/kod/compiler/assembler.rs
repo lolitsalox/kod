@@ -24,6 +24,7 @@ pub struct Assembler {
     pub machine_code: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Label {
     offset: Option<usize>,
     jump_slots: Vec<usize>,
@@ -556,11 +557,11 @@ impl Assembler {
         self.push(Operand::Register(Register::RBP, false));
         self.mov(Operand::Register(Register::RBP, false), Operand::Register(Register::RSP, false));
 
-        self.push_callee_saved_registers();
+        // self.push_callee_saved_registers();
     }
 
     pub fn exit(&mut self) {
-        self.pop_callee_saved_registers();
+        // self.pop_callee_saved_registers();
         
         // leave
         self.leave();
@@ -789,9 +790,9 @@ impl Assembler {
 
     pub fn cmp(&mut self, lhs: &Operand, rhs: &Operand) {
         match (&lhs, &rhs) {
-            (Operand::Register(_, _), Operand::Immediate(_)) if rhs.offset_or_immediate() == 0 => {
-                self.test(&lhs, &rhs);
-            },
+            // (Operand::Register(_, _), Operand::Immediate(_)) if rhs.offset_or_immediate() == 0 => {
+            //     self.test(&lhs, &rhs);
+            // },
             (_, Operand::Register(_, _)) if lhs.is_register_or_memory() => {
                 self.emit_rex_for_mr(lhs, rhs, RexW::Yes);
                 self.emit8(0x39);

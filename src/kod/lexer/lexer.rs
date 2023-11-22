@@ -120,6 +120,8 @@ impl Lexer {
             }
             '*' => {
                 self.skip_until_string("*/");
+                self.advance();
+                self.advance();
             }
             _ => return
             
