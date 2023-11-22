@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use crate::kod::lexer::token::{TokenType, get_symbols};
-use crate::kod::compiler::bytekod::{Code, Module, Opcode};
+use crate::kod::compiler::bytekod::{Code, Module, Opcode, Constant};
 
 pub trait Node: Debug {
     fn to_string(&self) -> String;
@@ -35,6 +35,10 @@ pub trait Node: Debug {
         None
     }
 
+    fn get_block(&self) -> Option<&BlockNode> {
+        None
+    }
+
     fn take_block(self: Box<Self>) -> Option<BlockNode> {
         None
     }
@@ -59,7 +63,21 @@ pub trait Node: Debug {
         None
     }
 
-    fn compile(&self, module: &mut Module, code: &mut Code);
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        unimplemented!("Unimplemented compile: {}", self.to_string());
+    }
+
+    fn push(&self, module: &mut Module, code: &mut Code) {
+        unimplemented!("Unimplemented push: {}", self.to_string());
+    }
+
+    fn to_constant(&self) -> Constant {
+        unimplemented!("Unimplemented to_constant: {}", self.to_string());
+    }
+
+    fn get(&self) -> NodeEnum {
+        unimplemented!("Unimplemented get: {}", self.to_string());
+    }
 
     // fn compile(&self, module: &mut CompiledModule, code: &mut Code) {
     //     panic!("Unimplemented compile: {}", self.to_string());
@@ -72,6 +90,26 @@ pub trait Node: Debug {
     // fn push(&self, module: &mut CompiledModule, code: &mut Code) {
     //     panic!("Unimplemented push: {}", self.to_string());
     // }
+}
+
+#[derive(Debug)]
+pub enum NodeEnum<'a> {
+    Block(&'a BlockNode),
+    FuncDef(&'a FuncDefNode),
+    FuncCall(&'a FuncCallNode),
+    Assignment(&'a AssignmentNode),
+    BinaryOp(&'a BinaryOpNode),
+    UnaryOp(&'a UnaryOpNode),
+    Access(&'a AccessNode),
+    Id(&'a IdNode),
+    Tuple(&'a TupleNode),
+    Float(&'a FloatNode),
+    String(&'a StringNode),
+    Int(&'a IntNode),
+    Subscript(&'a SubscriptNode),
+    Return(&'a ReturnNode),
+    If(&'a IfNode),
+    While(&'a WhileNode),
 }
 
 #[derive(Debug)]
@@ -88,8 +126,9 @@ pub struct FuncDefNode {
 
 #[derive(Debug)]
 pub struct FuncCallNode {
-    pub callie: Box<dyn Node>,
+    pub callee: Box<dyn Node>,
     pub args: Vec<Box<dyn Node>>,
+    pub add_arg: bool,
 }
 
 #[derive(Debug)]
@@ -133,13 +172,13 @@ pub struct ReturnNode {
 #[derive(Debug)]
 pub struct IfNode {
     pub condition: Box<dyn Node>,
-    pub block: Box<dyn Node>,
+    pub block: Box<BlockNode>,
 }
 
 #[derive(Debug)]
 pub struct WhileNode {
     pub condition: Box<dyn Node>,
-    pub block: Box<dyn Node>,
+    pub block: Box<BlockNode>,
 }
 
 #[derive(Debug)]
@@ -178,6 +217,10 @@ impl Node for BlockNode {
         s
     }
 
+    fn get_block(&self) -> Option<&BlockNode> {
+        Some(self)
+    }
+
     fn take_block(self: Box<Self>) -> Option<BlockNode> {
         Some(*self)
     }
@@ -185,16 +228,89 @@ impl Node for BlockNode {
     fn compile(&self, module: &mut Module, code: &mut Code) {
         code.code.clear();
 
-        for statement in &self.statements {
+        for (index, statement) in self.statements.iter().enumerate() {
             statement.compile(module, code);
             if !statement.pushes() { continue; }
-            if self.statements.last() != Some(&*statement) {
-                code.emit8(Opcode::POP_TOP as u8);
-            }
 
+            if index != self.statements.len() - 1 {
+                code.code.push(Opcode::POP_TOP.encode());
+            }
         }
 
+        if self.statements.is_empty() || (self.statements.len() > 0 && !self.statements[self.statements.len() - 1].returns()) {
+            if self.statements.len() == 0 || (self.statements.len() > 0 && !self.statements[self.statements.len() - 1].pushes()) {
+                // find the index of the constant null in module.constant_pool
+                let constant = module.constant_pool.iter().enumerate().find(|(_, constant)| {
+                    match constant {
+                        Constant::Null => true,
+                        _ => false
+                    }
+                });
 
+                code.emit8(Opcode::LOAD_CONST.encode());
+
+                match constant {
+                    Some((index, _)) => {
+                        code.emit32(index as u32);
+                    }
+                    None => {
+                        module.constant_pool.push(Constant::Null);
+                        code.emit32(module.constant_pool.len() as u32 - 1);
+                    }
+                }
+            }
+            
+            code.emit8(Opcode::RETURN.encode()); // implement RETURN_CONST and RETURN_VALUE idk
+        }
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Block(self)
+    }
+}
+
+fn assign(module: &mut Module, code: &mut Code, left: &Box<dyn Node>, right: Option<&Box<dyn Node>>, op: TokenType) {
+    if right.is_some() {
+        let right = right.unwrap();
+        right.compile(module, code);
+        if !right.pushes() {
+            right.push(module, code);
+        }
+    }
+
+    if let Some(identifier) = left.get_id() {
+        let id = module.name_pool.iter().enumerate().find(|(_, id)| {
+            **id == identifier.value
+        });
+
+        match op {
+            TokenType::EQUALS => {
+                code.emit8(Opcode::STORE_NAME.encode());
+            },
+            _ => {
+                unimplemented!("Unimplemented assignment operator: {:?}", op);
+            }
+        };
+
+        match id {
+            Some((index, _)) => {
+                code.emit32(index as u32);
+            }
+            None => {
+                module.name_pool.push(identifier.value.clone());
+                code.emit32(module.name_pool.len() as u32 - 1);
+            }
+        };
+
+    } else if let Some(tuple) = left.get_tuple() {
+        code.emit8(Opcode::UNPACK_SEQUENCE.encode());
+        code.emit32(tuple.values.len() as u32);
+
+        for value in &tuple.values {
+            assign(module, code, &value, None, op);
+        }
+    } else {
+        unimplemented!("Unimplemented assignment for {:?}", left);
     }
 }
 
@@ -204,7 +320,37 @@ impl Node for AssignmentNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        assign(module, code, &self.left, Some(&self.right), self.op);
+    }
+
+    fn pushes(&self) -> bool {
+        false
+    }
+
+    fn push(&self, module: &mut Module, code: &mut Code) {
+        if let Some(name) = self.left.get_id() {
+            let id = module.name_pool.iter().enumerate().find(|(_, id)| {
+                **id == name.value
+            });
+
+            code.emit8(Opcode::LOAD_NAME.encode());
+
+            match id {
+                Some((index, _)) => {
+                    code.emit32(index as u32);
+                }
+                None => {
+                    module.name_pool.push(name.value.clone());
+                    code.emit32(module.name_pool.len() as u32 - 1);
+                }
+            };
+        } else {
+            unimplemented!("Unimplemented push for {:?}", self.left);
+        }
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Assignment(self)
     }
 }
 
@@ -214,7 +360,41 @@ impl Node for BinaryOpNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        self.left.compile(module, code);
+        self.right.compile(module, code);
+    
+        let bin_op = match self.op {
+            TokenType::ADD => Opcode::BINARY_ADD,
+            TokenType::SUB => Opcode::BINARY_SUB,
+            TokenType::MUL => Opcode::BINARY_MUL,
+            TokenType::DIV => Opcode::BINARY_DIV,
+            TokenType::MOD => Opcode::BINARY_MOD,
+            TokenType::POW => Opcode::BINARY_POW,
+            TokenType::AND => Opcode::BINARY_AND,
+            TokenType::OR => Opcode::BINARY_OR,
+            TokenType::HAT => Opcode::BINARY_XOR,
+            TokenType::SHL => Opcode::BINARY_LEFT_SHIFT,
+            TokenType::SHR => Opcode::BINARY_RIGHT_SHIFT,
+            TokenType::BoolAnd => Opcode::BINARY_BOOLEAN_AND,
+            TokenType::BoolOr => Opcode::BINARY_BOOLEAN_OR,
+            TokenType::BoolEq => Opcode::BINARY_BOOLEAN_EQUAL,
+            TokenType::BoolNe => Opcode::BINARY_BOOLEAN_NOT_EQUAL,
+            TokenType::BoolGt => Opcode::BINARY_BOOLEAN_GREATER_THAN,
+            TokenType::BoolGte => Opcode::BINARY_BOOLEAN_GREATER_THAN_OR_EQUAL_TO,
+            TokenType::BoolLt => Opcode::BINARY_BOOLEAN_LESS_THAN,
+            TokenType::BoolLte => Opcode::BINARY_BOOLEAN_LESS_THAN_OR_EQUAL_TO,
+            _ => unreachable!("Invalid binary operator: {:?}", self.op),
+        };
+    
+        code.emit8(bin_op.encode());
+    }
+
+    fn is_constant(&self) -> bool {
+        self.left.is_constant() && self.right.is_constant()
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::BinaryOp(self)
     }
 }
 
@@ -223,8 +403,14 @@ impl Node for UnaryOpNode {
         return format!("({}{})", get_symbols().iter().find(|x| x.1 == &self.op).unwrap().0, self.value.to_string());
     }
 
-    fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+
+
+    fn is_constant(&self) -> bool {
+        self.value.is_constant()
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::UnaryOp(self)
     }
 }
 
@@ -234,7 +420,28 @@ impl Node for ReturnNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        if let Some(value) = &self.value {
+            value.compile(module, code);
+            if !value.pushes() {
+                value.push(module, code);
+            }
+        } else {
+            load_null(module, code);
+        }
+
+        code.emit8(Opcode::RETURN.encode());
+    }
+
+    fn pushes(&self) -> bool {
+        false
+    }
+
+    fn returns(&self) -> bool {
+        true
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Return(self)
     }
 }
 
@@ -251,8 +458,8 @@ impl Node for AccessNode {
         Some(self)
     }
 
-    fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Access(self)
     }
 }
 
@@ -261,8 +468,8 @@ impl Node for SubscriptNode {
         return format!("{}[{}]", self.value.to_string(), self.subscript.to_string());
     }
 
-    fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Subscript(self)
     }
 }
 
@@ -272,7 +479,29 @@ impl Node for IfNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        self.condition.compile(module, code);
+        if !self.condition.pushes() {
+            self.condition.push(module, code);
+        }
+
+        code.emit8(Opcode::POP_JUMP_IF_FALSE.encode());
+        let end_offset = code.emit32(0);
+
+        for statement in &self.block.statements {
+            statement.compile(module, code);
+            if !statement.pushes() { continue; }
+            code.emit8(Opcode::POP_TOP.encode());
+        }
+
+        code.patch32(end_offset, code.code.len() as u32);
+    }
+
+    fn pushes(&self) -> bool {
+        false
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::If(self)
     }
 }
 
@@ -282,7 +511,34 @@ impl Node for WhileNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        let condition_offset = code.code.len();
+        
+        self.condition.compile(module, code);
+        if !self.condition.pushes() {
+            self.condition.push(module, code);
+        }
+
+        code.emit8(Opcode::POP_JUMP_IF_FALSE.encode());
+        let end_offset = code.emit32(0);
+
+        for statement in &self.block.statements {
+            statement.compile(module, code);
+            if !statement.pushes() { continue; }
+            code.emit8(Opcode::POP_TOP.encode());
+        }
+
+        code.emit8(Opcode::JUMP.encode());
+        code.emit32(condition_offset as u32);
+
+        code.patch32(end_offset, code.code.len() as u32);
+    }
+
+    fn pushes(&self) -> bool {
+        false
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::While(self)
     }
 }
 
@@ -308,8 +564,18 @@ impl Node for TupleNode {
         Some(*self)
     }
 
-    fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+
+
+    fn is_constant(&self) -> bool {
+        self.values.iter().all(|x| { x.is_constant() })
+    }
+
+    fn to_constant(&self) -> Constant {
+        Constant::Tuple(self.values.iter().map(|x| { x.to_constant() }).collect())
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Tuple(self)
     }
 }
 
@@ -327,7 +593,32 @@ impl Node for IntNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        let constant = module.constant_pool.iter().enumerate().find(|(_, constant)| {
+            match constant {
+                Constant::Int(x) => x == &self.value,
+                _ => false
+            }
+        });
+    
+        code.emit8(Opcode::LOAD_CONST.encode());
+        
+        match constant {
+            Some((index, _)) => {
+                code.emit32(index as u32);
+            }
+            None => {
+                module.constant_pool.push(Constant::Int(self.value));
+                code.emit32(module.constant_pool.len() as u32 - 1);
+            }
+        }   
+    }
+
+    fn to_constant(&self) -> Constant {
+        Constant::Int(self.value)
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Int(self)
     }
 }
 
@@ -344,8 +635,14 @@ impl Node for FloatNode {
         Some(self)
     }
 
-    fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+
+
+    fn to_constant(&self) -> Constant {
+        Constant::Float(self.value)
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Float(self)
     }
 }
 
@@ -363,7 +660,32 @@ impl Node for StringNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        let constant = module.constant_pool.iter().enumerate().find(|(_, constant)| {
+            match constant {
+                Constant::String(x) => x == &self.value,
+                _ => false
+            }
+        });
+    
+        code.emit8(Opcode::LOAD_CONST.encode());
+        
+        match constant {
+            Some((index, _)) => {
+                code.emit32(index as u32);
+            }
+            None => {
+                module.constant_pool.push(Constant::String(self.value.clone()));
+                code.emit32(module.constant_pool.len() as u32 - 1);
+            }
+        }   
+    }
+
+    fn to_constant(&self) -> Constant {
+        Constant::String(self.value.clone())
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::String(self)
     }
 }
 
@@ -381,7 +703,84 @@ impl Node for IdNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        let id = module.name_pool.iter().enumerate().find(|(_, id)| {
+            **id == self.value
+        });
+
+        code.emit8(Opcode::LOAD_NAME.encode());
+
+        match id {
+            Some((index, _)) => {
+                code.emit32(index as u32);
+            }
+            None => {
+                module.name_pool.push(self.value.clone());
+                code.emit32(module.name_pool.len() as u32 - 1);
+            }
+        }
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::Id(self)
+    }
+}
+
+fn load_null(module: &mut Module, code: &mut Code) {
+    let constant = module.constant_pool.iter().enumerate().find(|(_, constant)| {
+        match constant {
+            Constant::Null => true,
+            _ => false
+        }
+    });
+
+    code.emit8(Opcode::LOAD_CONST.encode());
+    
+    match constant {
+        Some((index, _)) => {
+            code.emit32(index as u32);
+        }
+        None => {
+            module.constant_pool.push(Constant::Null);
+            code.emit32(module.constant_pool.len() as u32 - 1);
+        }
+    }   
+}
+
+fn compile_code_constant(
+    module: &mut Module, 
+    code: &mut Code,
+    name: &String,
+    func_args: &Vec<Box<dyn Node>>,
+    func_body: &Box<BlockNode>
+) {
+    let mut func = Code::new(name.clone(), vec![], vec![]);
+
+    func.params = func_args.iter().map(|x| { x.to_string() }).collect();
+    for node in &func_body.statements {
+        node.compile(module, &mut func);
+        if !node.pushes() { continue; }
+        func.emit8(Opcode::POP_TOP.encode());
+    }
+
+    if func_body.statements.is_empty() || (func_body.statements.len() > 0 && !func_body.statements.last().unwrap().returns()) {
+        load_null(module, &mut func);
+    }
+
+    let func_constant = Constant::Code(func);
+    let constant = module.constant_pool.iter().enumerate().find(|(_, constant)| {
+        func_constant == **constant
+    });
+
+    code.emit8(Opcode::LOAD_CONST.encode());
+
+    match constant {
+        Some((index, _)) => {
+            code.emit32(index as u32);
+        }
+        None => {
+            module.constant_pool.push(func_constant);
+            code.emit32(module.constant_pool.len() as u32 - 1);
+        }
     }
 }
 
@@ -391,16 +790,51 @@ impl Node for FuncDefNode {
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        let name = self.name.to_string();
+
+        compile_code_constant(module, code, &name, &self.params, &self.body);
+
+        let func_name = module.name_pool.iter().enumerate().find(|(_, func_name)| {
+            **func_name == name
+        });
+
+        code.emit8(Opcode::STORE_NAME.encode());
+
+        match func_name {
+            Some((index, _)) => {
+                code.emit32(index as u32);
+            }
+            None => {
+                module.name_pool.push(name);
+                code.emit32(module.name_pool.len() as u32 - 1);
+            }
+        }
+    }
+
+    fn pushes(&self) -> bool {
+        false
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::FuncDef(self)
     }
 }
 
 impl Node for FuncCallNode {
     fn to_string(&self) -> String {
-        return format!("{}({})", self.callie.to_string(), self.args.iter().map(|x| { x.to_string() }).collect::<Vec<String>>().join(", "));
+        return format!("{}({})", self.callee.to_string(), self.args.iter().map(|x| { x.to_string() }).collect::<Vec<String>>().join(", "));
     }
 
     fn compile(&self, module: &mut Module, code: &mut Code) {
-        todo!()
+        self.callee.compile(module, code);
+
+        self.args.iter().map(|x| { x.compile(module, code); }).count();
+
+        code.emit8(Opcode::CALL.encode());
+        code.emit32(self.args.len() as u32 + if self.add_arg { 1 } else { 0 });
+    }
+
+    fn get(&self) -> NodeEnum {
+        NodeEnum::FuncCall(self)
     }
 }

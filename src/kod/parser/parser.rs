@@ -205,7 +205,7 @@ impl Parser {
     }
 
     fn parse_after(&mut self, prev: Option<Box<dyn Node>>) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
-        let value = if prev.is_none() { self.parse_factor()? } else { prev.into() };
+        let mut value = if prev.is_none() { self.parse_factor()? } else { prev.into() };
 
         match self.lexer.peek().unwrap().token_type {
             TokenType::LPAREN => {
@@ -227,9 +227,16 @@ impl Parser {
                     }
                 }
 
+                let mut is_access = false;
+                if let Some(access) = value.as_mut().unwrap().get_access_mut() {
+                    access.load_self = true;
+                    is_access = true;
+                }
+
                 return self.parse_after(Some(Box::new(FuncCallNode {
-                    callie: value.unwrap(),
+                    callee: value.unwrap(),
                     args: list,
+                    add_arg: is_access
                 })))
             },
             
@@ -304,7 +311,7 @@ impl Parser {
         }
     }
 
-    fn parse_condition_block(&mut self) -> Result<(Box<dyn Node>, Box<dyn Node>), Box<dyn std::error::Error>> {
+    fn parse_condition_block(&mut self) -> Result<(Box<dyn Node>, Box<BlockNode>), Box<dyn std::error::Error>> {
         let condition = self.parse_statement()?;
         if condition.is_none() {
             return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
@@ -315,7 +322,7 @@ impl Parser {
             return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
         }
 
-        return Ok((condition.unwrap(), block.unwrap()));
+        return Ok((condition.unwrap(), Box::new(block.unwrap().take_block().unwrap())));
     }
 
     fn parse_if(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {

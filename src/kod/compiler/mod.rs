@@ -1,4 +1,4 @@
 pub mod compiler;
-mod assembler;
+pub mod assembler;
 pub(crate) mod bytekod;
 mod object;

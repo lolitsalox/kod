@@ -11,7 +11,7 @@ pub struct JitCompiler {
 }
 
 pub struct JitFunction {
-    function: fn() -> i64,
+    function: fn() -> u64,
     code_ptr: *mut c_void,
 }
 
@@ -42,7 +42,7 @@ impl JitFunction {
         }
 
         // Define a function pointer with the appropriate signature
-        type JitFunction = fn() -> i64;
+        type JitFunction = fn() -> u64;
         let function: JitFunction = unsafe { std::mem::transmute(code_ptr) };
         Self {
             function,
@@ -50,8 +50,12 @@ impl JitFunction {
         }
     }
 
-    pub fn run(&self) -> i64 {
+    pub fn run(&self) -> u64 {
         (self.function)()
+    }
+
+    pub fn optimize(&mut self) {
+        // optimize pushes and pops into movs
     }
 }
 
@@ -71,15 +75,15 @@ impl JitCompiler {
         }
     }
 
-    pub fn compile(&mut self, _ast: Box<dyn Node>) {
+    pub fn compile(&mut self) {
 
         println!("{:x?}", self.assembler.machine_code);
         disassemble_machine_code(&self.assembler.machine_code);
 
     }
 
-    pub fn run(&mut self) { 
+    pub fn run(&mut self) -> u64 { 
         let jit_function = JitFunction::new(&self.assembler.machine_code);
-        println!("JIT Result: {:x}", jit_function.run());
+        jit_function.run()
     }
 }

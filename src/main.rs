@@ -1,8 +1,7 @@
 mod kod;
 use std::path;
 
-use kod::{lexer::lexer::Lexer, parser::parser::Parser, compiler::compiler::JitCompiler};
-use crate::kod::compiler::bytekod::{Code, Module};
+use kod::{lexer::lexer::Lexer, parser::parser::Parser, compiler::bytekod::{Code, Module}, runtime::runtime::VM};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let args: Vec<String> = std::env::args().collect();
@@ -27,6 +26,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tree.compile(&mut module, &mut entry);
 
     module.entry = entry;
+
+    module.entry.print();
+    println!("{:#?}", module.constant_pool);
+    println!("{:#?}", module.name_pool);
+
+    let mut vm = VM::new(module);
+    vm.run(&tree);
 
     Ok(())
 }

@@ -224,6 +224,8 @@ impl Lexer {
                         number.push('0');
                     }
                 }
+            } else {
+                number.push('0');
             }
         } else if self.ch == '.' {
             number.push('0');

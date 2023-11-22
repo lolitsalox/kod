@@ -177,7 +177,7 @@ impl Register {
             Register::R14 | Register::XMM14 => 14,
             Register::R15 | Register::XMM15 => 15,
         };
-        v & 0x7
+        v
     }
 }
 
@@ -261,7 +261,7 @@ impl Operand {
     pub fn register_or_memory_base_to_underlying(&self) -> u8 {
         match self {
             Operand::Register(r, _) => r.encode(),
-            Operand::Memory(r, _) => r.encode(),
+            Operand::Memory(r, _) => r.encode() & 0x7,
             _ => unreachable!(),
         }
     }
@@ -273,6 +273,13 @@ impl Operand {
             Operand::Immediate(Immediate::Immediate32(i)) => *i as u64,
             Operand::Immediate(Immediate::Immediate64(i)) => *i,
             _ => unreachable!(),
+        }
+    }
+
+    fn is_immediate(&self) -> bool {
+        match self {
+            Operand::Immediate(_) => true,
+            _ => false,
         }
     }
 
@@ -333,7 +340,7 @@ impl Label {
     }
 
     fn link_jump(&self, assembler: &mut Assembler, offset_in_instructions: usize) {
-        let offset = self.offset.unwrap() - offset_in_instructions;
+        let offset = self.offset.unwrap() as i64 - offset_in_instructions as i64;
         let jump_slot = offset_in_instructions - 4;
         assembler.machine_code[jump_slot + 0] = ((offset >> 0) & 0xff) as u8;
         assembler.machine_code[jump_slot + 1] = ((offset >> 8) & 0xff) as u8;
@@ -566,7 +573,7 @@ impl Assembler {
         match &op {
             Operand::Register(reg, _) => {
                 self.emit_rex_for_oi(&op, RexW::No);
-                self.emit8(0x50 | reg.encode());
+                self.emit8(0x50 | reg.encode() & 0x7);
             }
             Operand::Immediate(_) if op.fits_in_i8() => {
                     self.emit8(0x6a);
@@ -739,7 +746,7 @@ impl Assembler {
     pub fn jump_if_cmp(&mut self, lhs: &Operand, condition: Condition, rhs: &Operand, label: &mut Label) {
         self.cmp(lhs, rhs);
         self.jump_if_label(condition, label);
-    }
+    }   
 
     pub fn set_if(&mut self, condition: Condition, dst: &Operand) {
         self.emit_rex_for_slash(dst, RexW::No);
@@ -761,7 +768,23 @@ impl Assembler {
     }
 
     pub fn test(&mut self, lhs: &Operand, rhs: &Operand) {
-        unimplemented!("test");
+        match (&lhs, &rhs) {
+            (_, Operand::Register(_, false)) if lhs.is_register_or_memory() => {
+                self.emit_rex_for_mr(lhs, rhs, RexW::Yes);
+                self.emit8(0x85);
+                self.emit_modrm_mr(lhs, rhs);
+            }
+            (_, Operand::Immediate(_)) if !lhs.is_immediate() => {
+                assert!(rhs.fits_in_i32());
+                self.emit_rex_for_slash(lhs, RexW::Yes);
+                self.emit8(0xf7);
+                self.emit_modrm_slash(0, lhs);
+                self.emit32(rhs.offset_or_immediate() as u32);
+            } 
+            _ => {
+                unreachable!("test: Invalid operands");
+            }
+        };
     }
 
     pub fn cmp(&mut self, lhs: &Operand, rhs: &Operand) {
