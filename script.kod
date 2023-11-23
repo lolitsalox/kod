@@ -1,5 +1,11 @@
-main() {
-    print("Hello world!\n")
-}
+// main() {
+//     print("Hello world!\n")
+// }
 
-main()
+// main()
+
+i = 0
+while i < 100000000 {
+    i = i + 1
+}
+return i

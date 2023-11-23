@@ -62,10 +62,13 @@ pub enum InstructionEnum {
     Mov(Operand, Operand),
     Push(Operand),
     Pop(Operand),
-    Jump(u32), // bytecode offset to jump to
-    JumpIfCmp(Operand, Condition, Operand, u32), // lhs, cond, rhs, jump_to in bytecode
+    JumpBytecode(u32), // bytecode offset to jump to
+    JumpBytecodeIfCmp(Operand, Condition, Operand, u32), // lhs, cond, rhs, jump_to in bytecode
     Exit,
     Call(u64),
+    Jump,
+    Shr(Register, u8),
+    IntFastSlowPathBinary(u64, u64),
 }
 
 #[derive(Debug, Clone)]
@@ -164,10 +167,13 @@ impl JitCompiler {
             self.instructions[ins_index].offset = self.assembler.machine_code.len();
             let ins = &self.instructions[ins_index].ins;
             match ins {
-                InstructionEnum::Jump(jump_to) => {
+                InstructionEnum::Jump => {
                     self.instructions[ins_index].label = self.assembler.jump();
                 },
-                InstructionEnum::JumpIfCmp(lhs, condition, rhs, jump_to) => {
+                InstructionEnum::JumpBytecode(_) => {
+                    self.instructions[ins_index].label = self.assembler.jump();
+                },
+                InstructionEnum::JumpBytecodeIfCmp(lhs, condition, rhs, _) => {
                     let mut label = Label::new();
                     self.assembler.jump_if_cmp(&lhs, *condition, &rhs, &mut label);
                     self.instructions[ins_index].label = label;
@@ -187,6 +193,40 @@ impl JitCompiler {
                 InstructionEnum::Call(callee) => {
                     self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(*callee)));
                     self.assembler.call_rax();
+                },
+                InstructionEnum::Shr(register, amount) => {
+                    self.assembler.shr(&Operand::Register(*register, false), &Operand::Immediate(Immediate::Immediate8(*amount)));
+                },
+                InstructionEnum::IntFastSlowPathBinary(vm, op) => {
+                    let mut end = Label::new();            
+                    let mut slow_path = Label::new();     
+
+                    self.assembler.jump_if_cmp(
+                        &Operand::Register(Register::RAX, false), 
+                        Condition::NotEqualTo, 
+                        &Operand::Immediate(Immediate::Immediate64(ObjectTag::Int as u64)), 
+                        &mut slow_path
+                    );
+                    
+                    self.assembler.jump_if_cmp(
+                        &Operand::Register(Register::RBX, false), 
+                        Condition::NotEqualTo, 
+                        &Operand::Immediate(Immediate::Immediate64(ObjectTag::Int as u64)), 
+                        &mut slow_path
+                    );
+
+                    // add them!!!
+                    self.assembler.add(Operand::Register(Register::R8, false), Operand::Register(Register::RDX, false));
+                    self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Register(Register::R8, false));
+
+                    self.assembler.jump_label(&mut end);
+                    slow_path.link(&mut self.assembler);
+
+                    self.assembler.mov(Operand::Register(Register::RCX, false), Operand::Immediate(Immediate::Immediate64(*vm)));
+                    self.assembler.mov(Operand::Register(Register::RAX, false), Operand::Immediate(Immediate::Immediate64(*op)));
+                    self.assembler.call_rax();
+
+                    end.link(&mut self.assembler);
                 }
                 _ => unimplemented!("{:#?}", ins),
             };
@@ -195,14 +235,19 @@ impl JitCompiler {
         for ins_index in 0..self.instructions.len() {
             let ins = &self.instructions[ins_index].ins;
             match ins {
-                InstructionEnum::Jump(jump_to) => {
+                InstructionEnum::Jump => {
+                    // find the instruction
+                    unimplemented!("{} {:#?}", ins_index, ins);
+                    // self.instructions[ins_index].label.link_to(&mut self.assembler, ins_offset);
+                },
+                InstructionEnum::JumpBytecode(jump_to) => {
                     let ins_offset = self.instructions.iter().find(|ins| { ins.bytecode_offset == *jump_to })
                         .expect("Failed to find jump offset")
                         .offset;
 
                     self.instructions[ins_index].label.link_to(&mut self.assembler, ins_offset);
                 },
-                InstructionEnum::JumpIfCmp(lhs, condition, rhs, jump_to) => {
+                InstructionEnum::JumpBytecodeIfCmp(lhs, condition, rhs, jump_to) => {
                     let ins_offset = self.instructions.iter().find(|ins| { ins.bytecode_offset == *jump_to })
                         .expect("Failed to find jump offset")
                         .offset;
@@ -226,23 +271,25 @@ impl JitCompiler {
             let ins = &self.instructions[i].ins;
             match ins {
                 InstructionEnum::Mov(dst, src) => {
-                    // mov rax, src
-                    // push rax
+                    // mov x, src
+                    // push x
                     // pop dst
                     // ------------
                     // mov dst, src
                     if let Some(ins2) = self.instructions.get(i + 1) {
                         match ins2.ins {
-                            InstructionEnum::Push(_) => {
-                                if let Some(ins3) = self.instructions.get(i + 2) {
-                                    match ins3.ins {
-                                        InstructionEnum::Pop(dst) => {
-                                            new_instructions.push(Instruction::new(self.instructions[i].bytecode_offset, InstructionEnum::Mov(dst, *src)));
-                                            i += 3;
-                                            continue;
-                                        }
-                                        _ => {
-                                            // idk
+                            InstructionEnum::Push(should_be_dst) => {
+                                if *dst == should_be_dst {
+                                    if let Some(ins3) = self.instructions.get(i + 2) {
+                                        match ins3.ins {
+                                            InstructionEnum::Pop(dst) => {
+                                                new_instructions.push(Instruction::new(self.instructions[i].bytecode_offset, InstructionEnum::Mov(dst, *src)));
+                                                i += 3;
+                                                continue;
+                                            }
+                                            _ => {
+                                                // idk
+                                            }
                                         }
                                     }
                                 }
@@ -259,12 +306,14 @@ impl JitCompiler {
                     // ------ nothing
                     if let Some(ins2) = self.instructions.get(i + 1) {
                         match ins2.ins {
-                            InstructionEnum::Pop(_) => {
-                                i += 2;
-                                continue;
+                            InstructionEnum::Pop(should_be_op) => {
+                                if *op == should_be_op {
+                                    i += 2;
+                                    continue;
+                                }
                             }
                             _ => {
-                                // idk
+                                // push op1, ... (op1 is not changing), pop op2 -> mov op2, op1
                             }
                         }
                     }
@@ -279,18 +328,26 @@ impl JitCompiler {
         self.instructions = new_instructions;
     }
 
-    pub fn compile_jump(&mut self, bytecode_offset: u32, jump_to: u32) {
-        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Jump(jump_to)));
+    pub fn compile_jump_bytecode(&mut self, bytecode_offset: u32, jump_to: u32) {
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::JumpBytecode(jump_to)));
     }
 
-    pub fn compile_pop_jump_if_false(&mut self, bytecode_offset: u32, jump_to: u32) {
+    pub fn compile_pop_jump_if_false_bytecode(&mut self, bytecode_offset: u32, jump_to: u32) {
         self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Pop(Operand::Register(Register::RAX, false))));
-        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::JumpIfCmp(
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::JumpBytecodeIfCmp(
             Operand::Register(Register::RAX, false),
             Condition::EqualTo,
             Operand::Immediate(Immediate::Immediate8(0)),
             jump_to))
         );
+    }
+
+    pub fn compile_jump(&mut self, bytecode_offset: u32) {
+        unimplemented!("compile_jump")
+    }
+    
+    pub fn compile_jump_if_not_equal(&mut self, bytecode_offset: u32) {
+        unimplemented!("compile_pop_jump_if_not_equal")
     }
 
     pub fn compile_pop(&mut self, bytecode_offset: u32, register: Register) {
@@ -341,6 +398,25 @@ impl JitCompiler {
         }
 
         self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Call(callee)));
+    }
+
+    pub fn compile_shr(&mut self, bytecode_offset: u32, register: Register, amount: u8) {
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::Shr(register, amount)));
+    }
+
+    pub fn compile_binary_add(&mut self, bytecode_offset: u32, vm: u64, op: u64) {
+        self.compile_pop(bytecode_offset, Register::R8); // first right
+        self.compile_pop(bytecode_offset, Register::RDX); // then left
+
+        // rax = lhs >> 48
+        self.compile_mov(bytecode_offset, Operand::Register(Register::RAX, false), Operand::Register(Register::RDX, false));
+        self.compile_shr(bytecode_offset, Register::RAX, 48);
+        
+        // rbx = rhs >> 48
+        self.compile_mov(bytecode_offset, Operand::Register(Register::RBX, false), Operand::Register(Register::R8, false));
+        self.compile_shr(bytecode_offset, Register::RBX, 48);
+
+        self.instructions.push(Instruction::new(bytecode_offset, InstructionEnum::IntFastSlowPathBinary(vm, op)));
     }
 
     pub fn run(&mut self) -> u64 { 

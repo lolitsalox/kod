@@ -830,4 +830,15 @@ impl Assembler {
         self.emit_modrm_slash(2, &Operand::Register(Register::RAX, false));
     }
 
+    pub fn shr(&mut self, dst: &Operand, count: &Operand) {
+        assert!(match (&dst, &count) {
+            (Operand::Register(_, _), Operand::Immediate(_)) if count.fits_in_u8() => true,
+            _ => false
+        });
+
+        self.emit_rex_for_slash(dst, RexW::Yes);
+        self.emit8(0xc1);
+        self.emit_modrm_slash(5, dst);
+        self.emit8(count.offset_or_immediate() as u8);
+    }
 }

@@ -179,18 +179,18 @@ impl VM {
     pub fn run(&mut self) {
         let mut i = 0;
 
-        while false && i < self.module.entry.code.len() {
+        while i < self.module.entry.code.len() {
             let offset = i as u32;
             let opcode = Opcode::try_from(self.module.entry.read8(&mut i)).unwrap();
 
             match opcode {
                 Opcode::JUMP => {
                     let jump_offset = self.module.entry.read32(&mut i);
-                    self.jc.compile_jump(offset, jump_offset);
+                    self.jc.compile_jump_bytecode(offset, jump_offset);
                 },
                 Opcode::POP_JUMP_IF_FALSE => {
                     let jump_offset = self.module.entry.read32(&mut i);
-                    self.jc.compile_pop_jump_if_false(offset, jump_offset);
+                    self.jc.compile_pop_jump_if_false_bytecode(offset, jump_offset);
                 },
                 Opcode::POP_TOP => {
                     self.jc.compile_pop(offset, Register::RAX);
@@ -258,8 +258,11 @@ impl VM {
                     self.jc.compile_return(offset);
                 },
                 Opcode::BINARY_ADD => {
-                    self.jc.compile_pop(offset, Register::RDX);
+                    // self.jc.compile_binary_add(offset, self as *const _ as u64, VM::rust_add as u64);
                     self.jc.compile_pop(offset, Register::R8);
+                    self.jc.compile_pop(offset, Register::RDX);
+
+                    // check if tag == Int for fastpath
 
                     self.jc.compile_call(
                         offset,
@@ -279,7 +282,6 @@ impl VM {
 
                     // check if tag == Int for fastpath
 
-
                     self.jc.compile_call(
                         offset,
                         VM::rust_lt as u64,
@@ -293,32 +295,44 @@ impl VM {
                     // end:
                     self.jc.compile_push(offset, Operand::Register(Register::RAX, false));
                 },
-                Opcode::CALL => {
-                    let arg_size = self.module.entry.read32(&mut i) as usize;
-                    let integer_regs = vec![
-                        Register::RCX,
-                        Register::RDX,
-                        Register::R8,
-                        Register::R9
-                    ];
+                // Opcode::CALL => {
+                //     let arg_size = self.module.entry.read32(&mut i) as usize;
+                //     let integer_regs = vec![
+                //         Register::RCX,
+                //         Register::RDX,
+                //         Register::R8,
+                //         Register::R9
+                //     ];
 
-                    assert!(arg_size <= integer_regs.len());
+                //     assert!(arg_size <= integer_regs.len());
 
-                    for i in 0..arg_size {
-                        self.jc.compile_pop(offset, integer_regs[i]);
-                    }
+                //     for i in 0..arg_size {
+                //         self.jc.compile_pop(offset, integer_regs[i]);
+                //     }
+                //     // make tuple
+                //     self.jc.compile_pop(offset, Register::RAX);
+                //     // code object should be in RAX
+                //     /*
+                //     if object.tag() == CodeObject { check in jitted functions, if not then jit it }
+                //     else if object.tag() == NativeFuncObject { call object.value()() }
+                //     else { error idfk }
+                //     */
+                    
+                //     self.jc.compile_call(
+                //         offset,
+                //         VM::rust_lt as u64,
+                //         vec![
+                //             Operand::Immediate(Immediate::Immediate64(self as *const _ as u64)),
+                //             Operand::Register(Register::RAX, false),
+                //         ]
+                //     );
 
-                    self.jc.compile_pop(offset, Register::RAX);
-                    // code object should be in RAX
-                    /*
-                    if object.tag() == CodeObject { check in jitted functions, if not then jit it }
-                    else if object.tag() == NativeFuncObject { call object.value()() }
-                    else { error idfk }
-                    */
+                //     // end:
+                //     self.jc.compile_push(offset, Operand::Register(Register::RAX, false));
 
-                    // self.jc.compile_shr(Operand::Immediate(Immediate8(48)));
-                    // self.jc.compile_cmp(Operand::Register(Register::RAX),Operand::Immediate(Immediate8(ObjectTag::Code)))
-                },
+                //     // self.jc.compile_shr(Operand::Immediate(Immediate8(48)));
+                //     // self.jc.compile_cmp(Operand::Register(Register::RAX),Operand::Immediate(Immediate8(ObjectTag::Code)))
+                // },
                 _ => {
                     unimplemented!("Unimplemented opcode: {:?}", opcode);
                 }
