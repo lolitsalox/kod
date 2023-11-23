@@ -136,7 +136,12 @@ impl JitFunction {
     }
 
     pub fn run(&self) -> u64 {
-        (self.function)()
+    use std::time::Instant;
+    let now = Instant::now();
+    let res = (self.function)();
+    let elapsed = now.elapsed();
+    println!("Elapsed: {:.2?}", elapsed);
+    res
     }
 
 }
