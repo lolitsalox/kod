@@ -167,7 +167,7 @@ impl Parser {
 
         self.eat(&ttype)?;
       
-        let mut value = self.parse_after(None)?;
+        let mut value = self.parse_before()?;
         if value.is_none() {
             return Err(ParserError::UnexpectedToken(self.lexer.peek().unwrap()).into());
         }

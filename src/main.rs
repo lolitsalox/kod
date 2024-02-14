@@ -18,18 +18,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = Parser::new(lexer);
     // write the output of parser.parse()?.to_string() to a file
     let tree = parser.parse().unwrap();
-    std::fs::write(path::Path::new("output.txt"), &tree.to_string()).expect("Unable to write file");
     print!("{}", tree.to_string());
-
+    std::fs::write(path::Path::new("output.txt"), &tree.to_string()).expect("Unable to write file");
+    
     let mut module = Module { name: filename.to_string(), name_pool: vec![], constant_pool: vec![], entry: Code::new("__main__".to_string(), vec![], vec![]) };
     let mut entry = Code::new("__main__".to_string(), vec![], vec![]);
     tree.compile(&mut module, &mut entry);
-
+    
     module.entry = entry;
-
+    
     module.entry.print();
-    println!("{:#?}", module.constant_pool);
-    println!("{:#?}", module.name_pool);
+    println!("constant_pool: {:#?}", module.constant_pool);
+    println!("name_pool: {:#?}", module.name_pool);
 
     let mut vm = VM::new(module);
     vm.run();

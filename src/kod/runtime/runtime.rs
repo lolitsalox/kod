@@ -99,21 +99,23 @@ impl GarbageCollector {
     }
 }
 
-// struct CallFrame {
-//     ip: usize,
-//     locals: Vec<u64>,
-// }
+struct CallFrame {
+    ip: usize,
+    locals: Vec<u64>,
+}
 
 struct VMState {
     gc: GarbageCollector,
-    // call_stack: VecDeque<CallFrame>,
+    call_stack: VecDeque<CallFrame>,
+    stack: Vec<Object>,
 }
 
 impl VMState {
     fn new() -> VMState {
         VMState {
             gc: GarbageCollector::new(),
-            // call_stack: VecDeque::new(),
+            call_stack: VecDeque::new(),
+            stack: Vec::new(),
         }
     }
 }
@@ -170,6 +172,9 @@ impl VM {
             ObjectTag::Int => {
                 return Object::new((lhs.value() < rhs.value()) as u64, ObjectTag::Int);
             },
+            ObjectTag::Float => {
+                return Object::new((lhs.value() < rhs.value()) as u64, ObjectTag::Int);
+            },
             _ => {
                 unimplemented!("unimplemented add for {:?}", lhs.tag());
             }
@@ -177,6 +182,63 @@ impl VM {
     }
 
     pub fn run(&mut self) {
+        let mut i = 0;
+
+        while i < self.module.entry.code.len() {
+            let offset = i as u32;
+            let opcode = Opcode::try_from(self.module.entry.read8(&mut i)).unwrap();
+            println!("{}: {:?}", offset, opcode);
+            match opcode {
+                Opcode::LOAD_CONST => {
+                    let index = self.module.entry.read32(&mut i);
+                    let constant = &self.module.constant_pool[index as usize];
+
+                    let mut obj = Object::new(0, ObjectTag::Null);
+                    match constant {
+                        Constant::Null => {
+                            obj = Object::new(0, ObjectTag::Null);
+                        },
+                        Constant::Int(int) => {
+                            obj = Object::new(*int as u64, ObjectTag::Int);
+                        },
+                        Constant::Float(float) => {
+                            obj = Object::new(*float as u64, ObjectTag::Float);
+                        }
+                        Constant::String(string) => {
+                            let heap_obj = self.state.gc.allocate();
+                            heap_obj.borrow_mut().value = VMValue::String(string.clone());
+                            self.state.gc.add_root(&heap_obj);
+                            obj = Object::new(heap_obj.as_ptr() as u64, ObjectTag::Pointer);
+                        }
+                        Constant::Code(code) => {
+                            let heap_obj = self.state.gc.allocate();
+                            heap_obj.borrow_mut().value = VMValue::Code(code.clone());
+                            self.state.gc.add_root(&heap_obj);
+                            obj = Object::new(heap_obj.as_ptr() as u64, ObjectTag::Pointer);
+                        }
+                        _ => {
+                            unimplemented!("Unimplemented constant: {:?}", constant);
+                        }
+                    }
+
+                    self.state.stack.push(obj);
+                }
+                Opcode::POP_TOP => {
+                    if let Some(obj) = self.state.stack.pop() {
+                        println!("pop_top: {:?}", obj.value());   
+                    }
+                }
+                _ => {
+                    unimplemented!("Unimplemented opcode: {:?}", opcode);
+                }
+            }
+        }
+
+        self.state.gc.collect();
+        println!("Done");
+    }
+
+    pub fn run_jit(&mut self) {
         let mut i = 0;
 
         while i < self.module.entry.code.len() {
@@ -206,6 +268,9 @@ impl VM {
                         },
                         Constant::Int(int) => {
                             obj = Object::new(*int as u64, ObjectTag::Int);
+                        },
+                        Constant::Float(float) => {
+                            obj = Object::new(*float as u64, ObjectTag::Float);
                         }
                         Constant::String(string) => {
                             let heap_obj = self.state.gc.allocate();

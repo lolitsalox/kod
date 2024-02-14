@@ -63,11 +63,11 @@ pub trait Node: Debug {
         None
     }
 
-    fn compile(&self, module: &mut Module, code: &mut Code) {
+    fn compile(&self, _module: &mut Module, _code: &mut Code) {
         unimplemented!("Unimplemented compile: {}", self.to_string());
     }
 
-    fn push(&self, module: &mut Module, code: &mut Code) {
+    fn push(&self, _module: &mut Module, _code: &mut Code) {
         unimplemented!("Unimplemented push: {}", self.to_string());
     }
 
@@ -403,7 +403,19 @@ impl Node for UnaryOpNode {
         return format!("({}{})", get_symbols().iter().find(|x| x.1 == &self.op).unwrap().0, self.value.to_string());
     }
 
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        self.value.compile(module, code);
 
+        let un_op = match self.op {
+            TokenType::ADD => Opcode::UNARY_ADD,
+            TokenType::SUB => Opcode::UNARY_SUB,
+            TokenType::NOT => Opcode::UNARY_NOT,
+            TokenType::BoolNot => Opcode::UNARY_BOOL_NOT,
+            _ => unreachable!("Invalid unary operator: {:?}", self.op),
+        };
+
+        code.emit8(un_op.encode());
+    }
 
     fn is_constant(&self) -> bool {
         self.value.is_constant()
@@ -635,7 +647,26 @@ impl Node for FloatNode {
         Some(self)
     }
 
-
+    fn compile(&self, module: &mut Module, code: &mut Code) {
+        let constant = module.constant_pool.iter().enumerate().find(|(_, constant)| {
+            match constant {
+                Constant::Float(x) => x == &self.value,
+                _ => false
+            }
+        });
+    
+        code.emit8(Opcode::LOAD_CONST.encode());
+        
+        match constant {
+            Some((index, _)) => {
+                code.emit32(index as u32);
+            }
+            None => {
+                module.constant_pool.push(Constant::Float(self.value));
+                code.emit32(module.constant_pool.len() as u32 - 1);
+            }
+        }   
+    }
 
     fn to_constant(&self) -> Constant {
         Constant::Float(self.value)
