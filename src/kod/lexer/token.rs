@@ -2,19 +2,12 @@ use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Token {
-    #[allow(dead_code)]
     pub token_type: TokenType,
-    #[allow(dead_code)]
     pub keyword_type: KeywordType,
-    #[allow(dead_code)]
     pub value: String,
-    #[allow(dead_code)]
     pub int_value: i64,
-    #[allow(dead_code)]
     pub float_value: f64,
-    #[allow(dead_code)]
     pub line: usize,
-    #[allow(dead_code)]
     pub column: usize,
 }
 
@@ -89,6 +82,7 @@ pub enum TokenType {
 pub enum KeywordType {
     Unknown,
     Null,
+    Fn,
     If,
     Else,
     While,
@@ -99,6 +93,8 @@ pub enum KeywordType {
     From,
     Break,
     Continue,
+    True,
+    False,
 }
 
 pub fn get_symbols() -> HashMap<&'static str, TokenType> {

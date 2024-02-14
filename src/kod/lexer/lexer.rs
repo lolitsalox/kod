@@ -362,6 +362,7 @@ impl Lexer {
     fn find_keyword_type(&mut self, identifier: &str) -> KeywordType {
         let keywords: HashMap<&str, KeywordType> = HashMap::from([
             ("null", KeywordType::Null),
+            ("fn", KeywordType::Fn),
             ("if", KeywordType::If),
             ("else", KeywordType::Else),
             ("while", KeywordType::While),
@@ -372,6 +373,8 @@ impl Lexer {
             ("from", KeywordType::From),
             ("break", KeywordType::Break),
             ("continue", KeywordType::Continue),
+            ("true", KeywordType::True),
+            ("false", KeywordType::False),
         ]);
     
         // Use an iterator to find the keyword

@@ -217,16 +217,6 @@ impl Parser {
                 };
                 self.getting_params = false;
 
-                if value.as_ref().unwrap().get_id().is_some() {
-                    if self.lexer.peek().unwrap().token_type == TokenType::LBRACE {
-                        return Ok(Some(Box::new(FuncDefNode { 
-                            name: Box::new(value.unwrap().take_id().unwrap()), 
-                            params: list, 
-                            body: Box::new(self.parse_block()?.unwrap().take_block().unwrap()) 
-                        })));
-                    }
-                }
-
                 let mut is_access = false;
                 if let Some(access) = value.as_mut().unwrap().get_access_mut() {
                     access.load_self = true;
@@ -304,6 +294,7 @@ impl Parser {
         let ktype = self.lexer.next()?.keyword_type;
 
         match ktype {
+            KeywordType::Fn => self.parse_fn(),
             KeywordType::If => self.parse_if(),
             KeywordType::While => self.parse_while(),
             KeywordType::Return => self.parse_return(),
@@ -323,6 +314,24 @@ impl Parser {
         }
 
         return Ok((condition.unwrap(), Box::new(block.unwrap().take_block().unwrap())));
+    }
+
+    fn parse_fn(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
+        let value = self.parse_factor()?;
+
+        self.getting_params = true;
+        let list: Vec<Box<dyn Node>> = match self.parse_tuple(true)? {
+            Some(ls) if ls.get_tuple().is_some() => ls.take_tuple().unwrap().values,
+            Some(ls) => vec![ls],
+            _ => vec![],
+        };
+        self.getting_params = false;
+
+        Ok(Some(Box::new(FuncDefNode { 
+            name: Box::new(value.unwrap().take_id().unwrap()), 
+            params: list, 
+            body: Box::new(self.parse_block()?.unwrap().take_block().unwrap()) 
+        })))
     }
 
     fn parse_if(&mut self) -> Result<Option<Box<dyn Node>>, Box<dyn std::error::Error>> {
