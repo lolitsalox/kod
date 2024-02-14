@@ -209,13 +209,11 @@ impl Parser {
 
         match self.lexer.peek().unwrap().token_type {
             TokenType::LPAREN => {
-                self.getting_params = true;
                 let list: Vec<Box<dyn Node>> = match self.parse_tuple(true)? {
                     Some(ls) if ls.get_tuple().is_some() => ls.take_tuple().unwrap().values,
                     Some(ls) => vec![ls],
                     _ => vec![],
                 };
-                self.getting_params = false;
 
                 let mut is_access = false;
                 if let Some(access) = value.as_mut().unwrap().get_access_mut() {
