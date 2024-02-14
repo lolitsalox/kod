@@ -122,7 +122,7 @@ impl VMState {
 
 pub struct VM {
     state: VMState,
-    module: Module,
+    pub module: Module,
     globals: Vec<u64>,
     jc: JitCompiler,
 }
@@ -222,12 +222,27 @@ impl VM {
                     }
 
                     self.state.stack.push(obj);
-                }
+                },
+                Opcode::STORE_NAME => {
+                    let name_index = self.module.entry.read32(&mut i);
+                    let obj = self.state.stack.pop().unwrap();
+                    self.store_name(name_index, obj);
+                },
+                Opcode::LOAD_NAME => {
+                    let name_index = self.module.entry.read32(&mut i);
+                    let obj = self.load_name(name_index);
+                    self.state.stack.push(obj);
+                },
                 Opcode::POP_TOP => {
                     if let Some(obj) = self.state.stack.pop() {
                         println!("pop_top: {:?}", obj.value());   
                     }
-                }
+                },
+                Opcode::RETURN => {
+                    if let Some(obj) = self.state.stack.pop() {
+                        println!("return: {:?} {}", obj.tag(), obj.value());   
+                    }
+                },
                 _ => {
                     unimplemented!("Unimplemented opcode: {:?}", opcode);
                 }

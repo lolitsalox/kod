@@ -13,7 +13,7 @@ impl Code {
     }
 
     pub fn print(&self) {
-        println!("{}: {:?}", self.name, self.params);
+        println!("name: {}, params: {:?}", self.name, self.params);
         let mut i = 0;
         while i < self.code.len() {
             let opcode = Opcode::try_from(self.read8(&mut i)).unwrap();
@@ -140,7 +140,7 @@ impl Constant {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Module {
     pub name: String,
     pub name_pool: Vec<String>,
