@@ -1,0 +1,63 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Utils">
+      <UniqueIdentifier>{6e9cc2ed-0c74-455b-90f8-4a54553bb3eb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Utils\FileUtils">
+      <UniqueIdentifier>{093b18d3-b4d1-4265-9575-81c48bfe8c05}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Utils\BufferUtils">
+      <UniqueIdentifier>{e0ca72d7-f04d-455f-b1a3-0285907e1e24}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common">
+      <UniqueIdentifier>{925cfb0c-4095-4f7c-bfa5-c32451053e3f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Lexer">
+      <UniqueIdentifier>{8f290d8b-1eda-4f69-bbae-c0ad46a48407}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Token">
+      <UniqueIdentifier>{41f874cf-2f40-415e-b435-831907249c12}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="FileUtils.cpp">
+      <Filter>Utils\FileUtils</Filter>
+    </ClCompile>
+    <ClCompile Include="BufferUtils.cpp">
+      <Filter>Utils\BufferUtils</Filter>
+    </ClCompile>
+    <ClCompile Include="Common.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="Lexer.cpp">
+      <Filter>Lexer</Filter>
+    </ClCompile>
+    <ClCompile Include="Token.cpp">
+      <Filter>Token</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="FileUtils.hpp">
+      <Filter>Utils\FileUtils</Filter>
+    </ClInclude>
+    <ClInclude Include="BufferUtils.hpp">
+      <Filter>Utils\BufferUtils</Filter>
+    </ClInclude>
+    <ClInclude Include="Common.hpp">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="KodException.hpp">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="KodStatus.hpp">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="Lexer.hpp">
+      <Filter>Lexer</Filter>
+    </ClInclude>
+    <ClInclude Include="Token.hpp">
+      <Filter>Token</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
