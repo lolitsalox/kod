@@ -30,8 +30,6 @@ namespace Kod
         Token _collect_identifier();
         Token _collect_symbol();
 
-        static bool _s_is_symbol(wchar_t character);
-
     private:
         const std::wstring m_content;
         Location m_location;

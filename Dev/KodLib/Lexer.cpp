@@ -36,11 +36,11 @@ namespace Kod
                 return _collect_identifier();
             }
 
-            if (_s_is_symbol(_get_current_char()))
+            if (Token::_s_is_symbol(_get_current_char()))
             {
                 _skip_comments();
                 if ((_is_start_of_comments()) ||
-                    (!_s_is_symbol(_get_current_char())))
+                    (!Token::_s_is_symbol(_get_current_char())))
                 {
                     continue;
                 }
@@ -197,19 +197,54 @@ namespace Kod
 
     Token Lexer::_collect_identifier()
     {
-        // TODO
-        return Token();
+        std::wstring identifier;
+        TokenType ttype = TokenType::ID;
+        Location id_location = m_location;
+
+        while ((_can_advance()) && 
+            (std::isalnum(_get_current_char()) || L'_' == _get_current_char()))
+        {
+            identifier.push_back(_get_current_char());
+            _advance();
+        }
+
+        KeywordType ktype = Token::s_keyword_to_type(identifier);
+
+        if (KeywordType::UNKNOWN != ktype)
+        {
+            ttype = TokenType::KEYWORD;
+        }
+
+        auto tok = Token(id_location, ttype, identifier, ktype);
+        return tok;
     }
 
     Token Lexer::_collect_symbol()
     {
-        // TODO
-        return Token();
-    }
+        Location symbol_location = m_location;
+        std::wstring symbol;
 
-    bool Lexer::_s_is_symbol(wchar_t character)
-    {
-        static const std::wstring symbols(L"()[]{}=@#,.:;?\\+-/*%&|^<>!~");
-        return std::wstring::npos != symbols.find(character);
+        symbol.push_back(_get_current_char());
+        _advance();
+
+        TokenType ttype = Token::s_symbol_to_type(symbol);
+
+        // If it's a double (or more) character symbol
+        if ((_can_advance()) && 
+            (Token::_s_is_symbol(_get_current_char())))
+        {
+            std::wstring new_symbol = symbol + _get_current_char();
+
+            TokenType second_type = Token::s_symbol_to_type(new_symbol);
+
+            if (TokenType::UNKNOWN != second_type)
+            {
+                ttype = second_type;
+                symbol = new_symbol;
+                _advance();
+            }
+        }
+
+        return Token(symbol_location, ttype, symbol);
     }
 }

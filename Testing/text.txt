@@ -1,3 +1,5 @@
-"Hello world!"
-"yes"
-"no"
+fn main()
+{
+	x *= main
+	print("Hello world!")
+}

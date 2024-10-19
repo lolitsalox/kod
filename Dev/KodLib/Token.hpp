@@ -1,11 +1,14 @@
 #pragma once
 
+#include <unordered_map>
 #include "Common.hpp"
 
 namespace Kod
 {
     enum class TokenType : uint32_t
     {
+        UNKNOWN,
+
         PLUS,               //  +
         MINUS,              //  -
         DIV,                //  /
@@ -72,6 +75,7 @@ namespace Kod
     };
 
     enum class KeywordType {
+        UNKNOWN,
         NULL_K,
         TRUE,
         FALSE,
@@ -85,6 +89,7 @@ namespace Kod
         FROM,
         BREAK,
         CONTINUE,
+        FN,
     };
 
     class Location
@@ -97,8 +102,8 @@ namespace Kod
         Location(Location&&) = default;
         Location& operator=(Location&&) = default;
 
-        [[nodiscard]] inline uint32_t get_line() const { return m_line; }
-        [[nodiscard]] inline uint32_t get_column() const { return m_column; }
+        inline uint32_t get_line() const { return m_line; }
+        inline uint32_t get_column() const { return m_column; }
 
         inline void new_line() { ++m_line; m_column = 1; }
         inline void add_column() { ++m_column; }
@@ -115,25 +120,35 @@ namespace Kod
     class Token
     {
     public:
-        explicit Token(const Location location = {}, const TokenType type = TokenType::END_OF_INPUT, const std::wstring& value = L"");
+        explicit Token(const Location location = {},
+                       const TokenType token_type = TokenType::END_OF_INPUT, 
+                       const std::wstring& value = L"",
+                       const KeywordType keyword_type = KeywordType::UNKNOWN);
         virtual ~Token() = default;
         Token(const Token&) = default;
         Token& operator=(const Token&) = default;
         Token(Token&&) = default;
         Token& operator=(Token&&) = default;
 
-        [[nodiscard]] TokenType get_type() const { return m_type; }
-        [[nodiscard]] std::wstring get_value() const { return m_value; }
-        [[nodiscard]] Location get_location() const { return m_location; }
+        TokenType get_type() const { return m_token_type; }
+        Location get_location() const { return m_location; }
+        std::wstring get_value() const { return m_value; }
 
-        [[nodiscard]] bool is(const TokenType type) const { return m_type == type; }
+        bool is(const TokenType type) const { return m_token_type == type; }
+        static TokenType s_symbol_to_type(const std::wstring& symbol);
+        static KeywordType s_keyword_to_type(const std::wstring& keyword);
+
+        static bool _s_is_symbol(wchar_t character);
 
     private:
         friend std::wostream& operator<<(std::wostream& os, const Token& token);
 
     private:
-        TokenType m_type;
+        TokenType m_token_type;
         Location m_location;
         std::wstring m_value;
+        KeywordType m_keyword_type;
+        int64_t m_int_value;
+        double m_float_value;
     };
 }
