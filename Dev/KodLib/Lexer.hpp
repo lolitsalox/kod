@@ -39,4 +39,5 @@ namespace Kod
         Location m_location;
         uint32_t m_index;
     };
+    using LexerUPtr = std::unique_ptr<Lexer>;
 }

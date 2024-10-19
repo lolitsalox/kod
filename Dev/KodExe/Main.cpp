@@ -1,5 +1,5 @@
 #include "FileUtils.hpp"
-#include "Lexer.hpp"
+#include "Parser.hpp"
 
 int wmain(int argc, char** argv)
 {
@@ -10,15 +10,19 @@ int wmain(int argc, char** argv)
     {
         const std::wstring file_path = L"text.txt";
         const std::wstring buffer = FileUtils::read_whole_file(file_path);
-        Kod::Lexer lexer(buffer, file_path);
-        Kod::Token token;
+        
+        Kod::Parser parser(std::make_unique<Kod::Lexer>(buffer, file_path));
 
-        do
-        {
-            token = lexer.get_next_token();
-            std::wcout << token << std::endl;
-        } 
-        while (!token.is(Kod::TokenType::END_OF_INPUT));
+        Kod::AstNodeUPtr root = parser.parse();
+        std::wcout << *root << std::endl;
+
+        //Kod::Token token;
+        //do
+        //{
+        //    token = lexer.get_next_token();
+        //    std::wcout << token << std::endl;
+        //} 
+        //while (!token.is(Kod::TokenType::END_OF_INPUT));
     }
     catch (const KodException& e)
     {

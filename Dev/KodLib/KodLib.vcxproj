@@ -19,19 +19,23 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AstNode.cpp" />
     <ClCompile Include="BufferUtils.cpp" />
     <ClCompile Include="Common.cpp" />
     <ClCompile Include="FileUtils.cpp" />
     <ClCompile Include="Lexer.cpp" />
+    <ClCompile Include="Parser.cpp" />
     <ClCompile Include="Token.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AstNode.hpp" />
     <ClInclude Include="KodException.hpp" />
     <ClInclude Include="BufferUtils.hpp" />
     <ClInclude Include="Common.hpp" />
     <ClInclude Include="FileUtils.hpp" />
     <ClInclude Include="KodStatus.hpp" />
     <ClInclude Include="Lexer.hpp" />
+    <ClInclude Include="Parser.hpp" />
     <ClInclude Include="Token.hpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
