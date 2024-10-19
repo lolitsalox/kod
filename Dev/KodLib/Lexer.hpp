@@ -20,6 +20,7 @@ namespace Kod
     private:
         void _skip_whitespace();
         void _skip_comments();
+        void _skip_until(const wchar_t character);
         wchar_t _get_current_char() const;
         wchar_t _peek_char() const;
         void _advance();
@@ -29,6 +30,9 @@ namespace Kod
         Token _collect_number();
         Token _collect_identifier();
         Token _collect_symbol();
+
+        static bool _s_is_bin(const wchar_t character) { return std::isdigit(character) && (L'1' >= character); }
+        static bool _s_is_oct(const wchar_t character) { return std::isdigit(character) && (L'8' >= character); }
 
     private:
         const std::wstring m_content;

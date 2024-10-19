@@ -1,5 +1,9 @@
 fn main()
 {
-	x *= main
+	x *= 1 * 2.3 && 0x1000 + 0b1010 + 0o10
+	/* oaoaoaoao 
 	print("Hello world!")
+	*/
+	main(1, 2, 3)
+	// Yo this is a comments
 }

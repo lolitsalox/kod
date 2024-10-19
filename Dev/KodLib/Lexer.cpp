@@ -39,7 +39,9 @@ namespace Kod
             if (Token::_s_is_symbol(_get_current_char()))
             {
                 _skip_comments();
+                // TODO: add a warning if cant advance that the comment is not terminated
                 if ((_is_start_of_comments()) ||
+                    (!_can_advance()) ||
                     (!Token::_s_is_symbol(_get_current_char())))
                 {
                     continue;
@@ -85,9 +87,47 @@ namespace Kod
         }
     }
 
-    void Kod::Lexer::_skip_comments()
+    void Lexer::_skip_comments()
     {
-        // TODO
+        if (!_can_advance()) return;
+
+        // Check if the next character is a /
+        if (L'/' != _get_current_char()) return;
+
+        // Check if the next character is a / or *
+        switch (_peek_char()) {
+        case L'/': 
+        {
+            _skip_until(L'\n');
+            _advance();
+            break;
+        }
+
+        case '*': 
+        {
+            // skip until "*/"
+            while (_can_advance()) {
+                if ((L'*' == _get_current_char()) && 
+                    L'/' == _peek_char()) 
+                {
+                    _advance();
+                    _advance();
+                    break;
+                }
+                _advance();
+            }
+            break;
+        }
+
+        default: break;
+        }
+    }
+
+    void Lexer::_skip_until(const wchar_t character)
+    {
+        while (_can_advance() && character != _get_current_char()) {
+            _advance();
+        }
     }
 
     wchar_t Lexer::_get_current_char() const
@@ -124,7 +164,7 @@ namespace Kod
 
     bool Lexer::_can_advance() const
     {
-        return (m_content.size() > m_index) &&
+        return (m_index < m_content.size()) &&
             (L'\0' != m_content[m_index]);
     }
 
@@ -191,8 +231,98 @@ namespace Kod
 
     Token Lexer::_collect_number()
     {
-        // TODO
-        return Token();
+        std::wstring number;
+        Location number_location = m_location;
+
+        bool dot = false;
+        bool is_hex = false;
+        bool is_bin = false;
+        bool is_oct = false;
+
+        TokenType ttype = TokenType::INT;
+
+        if (L'0' == _get_current_char()) 
+        {
+            _advance();
+            if (_can_advance())
+            {
+                switch (_get_current_char())
+                {
+                case L'x':
+                {
+                    is_hex = true;
+                    _advance();
+                    break;
+                }
+                case L'b':
+                {
+                    is_bin = true;
+                    _advance();
+                    break;
+                }
+                case L'o':
+                {
+                    is_oct = true;
+                    _advance();
+                    break;
+                } 
+                default: number.push_back(L'0'); break;
+                }
+            }
+            else {
+                number.push_back(L'0');
+            }
+        }
+        else if (L'.' == _get_current_char())
+        {
+            number.push_back(L'0');
+        }
+
+        while (_can_advance() && 
+            ((is_hex && std::isxdigit(_get_current_char())) ||
+            (is_bin && _s_is_bin(_get_current_char())) ||
+            (is_oct && _s_is_oct(_get_current_char())) ||
+            (!is_hex && !is_bin && !is_oct && 
+                (std::isdigit(_get_current_char()) || L'.' == _get_current_char()))
+            ))
+        {
+            if (L'.' == _get_current_char()) 
+            {
+                if (dot)
+                {
+                    break;
+                }
+                dot = true;
+            }
+            number.push_back(_get_current_char());
+            _advance();
+        }
+
+        if (dot)
+        {
+            while (_can_advance() && std::isdigit(_get_current_char()))
+            {
+                number.push_back(_get_current_char());
+                _advance();
+            }
+
+            ttype = TokenType::FLOAT;
+        }
+
+        if (is_hex) 
+        {
+            number = std::to_wstring(std::stoll(number, nullptr, 16));
+        }
+        else if (is_oct) 
+        {
+            number = std::to_wstring(std::stoll(number, nullptr, 8));
+        }
+        else if (is_bin) 
+        {
+            number = std::to_wstring(std::stoll(number, nullptr, 2));
+        }
+
+        return Token(number_location, ttype, number);
     }
 
     Token Lexer::_collect_identifier()
