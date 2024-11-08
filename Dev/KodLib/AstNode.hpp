@@ -47,32 +47,77 @@ namespace Kod
     class AstNodeString : public AstNode
     {
     public:
-        AstNodeString(const std::wstring& string) : m_string(string) {}
+        explicit AstNodeString(const std::wstring& string) : 
+            m_string(string) {}
         virtual ~AstNodeString() = default;
         AstNodeString(const AstNodeString&) = delete;
         AstNodeString& operator=(const AstNodeString&) = delete;
         AstNodeString(AstNodeString&&) = delete;
         AstNodeString& operator=(AstNodeString&&) = delete;
 
-        virtual std::wstring to_string() const override { return m_string; }
+        virtual std::wstring to_string() const override 
+        { 
+            std::wostringstream ss;
+            ss << std::quoted(m_string); 
+            return ss.str();
+        }
 
     private:
         const std::wstring m_string;
     };
 
-    class AstNodeAssignment : public AstNode
+    class AstNodeIdentifier : public AstNode
     {
     public:
-        AstNodeAssignment(AstNodeUPtr lhs, AstNodeUPtr rhs) : m_lhs(std::move(lhs)), m_rhs(std::move(rhs)) {}
-        virtual ~AstNodeAssignment() = default;
-        AstNodeAssignment(const AstNodeAssignment&) = delete;
-        AstNodeAssignment& operator=(const AstNodeAssignment&) = delete;
-        AstNodeAssignment(AstNodeAssignment&&) = delete;
-        AstNodeAssignment& operator=(AstNodeAssignment&&) = delete;
+        explicit AstNodeIdentifier(const std::wstring& identifier) :
+            m_identifier(identifier) {}
+        virtual ~AstNodeIdentifier() = default;
+        AstNodeIdentifier(const AstNodeIdentifier&) = delete;
+        AstNodeIdentifier& operator=(const AstNodeIdentifier&) = delete;
+        AstNodeIdentifier(AstNodeIdentifier&&) = delete;
+        AstNodeIdentifier& operator=(AstNodeIdentifier&&) = delete;
 
-        virtual std::wstring to_string() const override { return m_lhs->to_string() + L" = " + m_rhs->to_string(); }
+        virtual std::wstring to_string() const override { return m_identifier; }
 
     private:
+        const std::wstring m_identifier;
+    };
+
+    class AstNodeNumber : public AstNode
+    {
+    public:
+        explicit AstNodeNumber(const std::wstring& number) :
+            m_number(number) {}
+        virtual ~AstNodeNumber() = default;
+        AstNodeNumber(const AstNodeNumber&) = delete;
+        AstNodeNumber& operator=(const AstNodeNumber&) = delete;
+        AstNodeNumber(AstNodeNumber&&) = delete;
+        AstNodeNumber& operator=(AstNodeNumber&&) = delete;
+
+        virtual std::wstring to_string() const override { return m_number; }
+
+    private:
+        const std::wstring m_number;
+    };
+
+    class AstNodeBinaryOp : public AstNode
+    {
+    public:
+        AstNodeBinaryOp(const Token op, AstNodeUPtr lhs, AstNodeUPtr rhs) : 
+            m_operator(op), m_lhs(std::move(lhs)), m_rhs(std::move(rhs)) {}
+        virtual ~AstNodeBinaryOp() = default;
+        AstNodeBinaryOp(const AstNodeBinaryOp&) = delete;
+        AstNodeBinaryOp& operator=(const AstNodeBinaryOp&) = delete;
+        AstNodeBinaryOp(AstNodeBinaryOp&&) = delete;
+        AstNodeBinaryOp& operator=(AstNodeBinaryOp&&) = delete;
+
+        virtual std::wstring to_string() const override 
+        { 
+            return L"(" + m_lhs->to_string() + L" " + m_operator.get_value() + L" " + m_rhs->to_string() + L")"; 
+        }
+
+    private:
+        const Token m_operator;
         const AstNodeUPtr m_lhs;
         const AstNodeUPtr m_rhs;
     };

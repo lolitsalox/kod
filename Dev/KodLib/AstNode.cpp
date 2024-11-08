@@ -22,6 +22,20 @@ namespace Kod
 
     AstNodeUPtr AstNodeFactory::create(const Token token)
     {
-        return std::make_unique<AstNodeString>(token.get_value());
+        switch (token.get_type())
+        {
+        case TokenType::INT:
+        case TokenType::FLOAT:
+            return std::make_unique<AstNodeNumber>(token.get_value());
+
+        case TokenType::ID:
+            return std::make_unique<AstNodeIdentifier>(token.get_value());
+
+        case TokenType::STRING:
+            return std::make_unique<AstNodeString>(token.get_value());
+
+        default:
+            throw KodException(KodStatus::KODSTATUS_ASTNODEFACTORY_CREATE_INVALID_TOKEN);
+        }
     }
 }

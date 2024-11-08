@@ -41,15 +41,17 @@ namespace Kod
 
     AstNodeUPtr Parser::_assignment()
     {
-        AstNodeUPtr lhs = _factor();
-        
-        if (!_optional_eat_token(TokenType::EQUALS))
-        {
-            return lhs;
-        }
+        return _binary([this]() { return _plus_minus(); }, TokenType::EQUALS);
+    }
 
-        AstNodeUPtr rhs = _assignment();
-        return std::make_unique<AstNodeAssignment>(std::move(lhs), std::move(rhs));
+    AstNodeUPtr Parser::_plus_minus()
+    {
+        return _binary([this]() { return _mul_div_mod(); }, TokenType::PLUS, TokenType::MINUS);
+    }
+
+    AstNodeUPtr Parser::_mul_div_mod()
+    {
+        return _binary([this]() { return _factor(); }, TokenType::MUL, TokenType::DIV, TokenType::MOD);
     }
 
     AstNodeUPtr Parser::_factor()
