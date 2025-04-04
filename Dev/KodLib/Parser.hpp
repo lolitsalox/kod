@@ -24,6 +24,7 @@ namespace Kod
         AstNodeUPtr _assignment();
         AstNodeUPtr _plus_minus();
         AstNodeUPtr _mul_div_mod();
+        AstNodeUPtr _pow();
         AstNodeUPtr _factor();
 
         template<typename F, typename... TokenTypes>

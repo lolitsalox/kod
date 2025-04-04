@@ -9,6 +9,20 @@ namespace Kod
         m_index(0)
     {}
 
+    LexerState Lexer::get_state() const
+    {
+        return {
+            m_location,
+            m_index
+        };
+    }
+
+    void Lexer::restore_state(const LexerState& state)
+    {
+        m_location = state.m_location;
+        m_index = state.m_index;
+    }
+
     Token Lexer::get_next_token()
     {
         for (;;)
@@ -313,7 +327,7 @@ namespace Kod
         {
             number = std::to_wstring(std::stoll(number, nullptr, 16));
         }
-        else if (is_oct) 
+        else if (is_oct)
         {
             number = std::to_wstring(std::stoll(number, nullptr, 8));
         }

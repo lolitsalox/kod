@@ -4,6 +4,12 @@
 
 namespace Kod
 {
+    struct LexerState
+    {
+        Location m_location;
+        uint32_t m_index;
+    };
+
     class Lexer
     {
     public:
@@ -16,6 +22,8 @@ namespace Kod
 
         Token get_next_token();
         Token peek_token();
+        LexerState get_state() const;
+        void restore_state(const LexerState& state);
 
     private:
         void _skip_whitespace();

@@ -16,11 +16,11 @@
     <Filter Include="Lexer">
       <UniqueIdentifier>{8f290d8b-1eda-4f69-bbae-c0ad46a48407}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Token">
-      <UniqueIdentifier>{41f874cf-2f40-415e-b435-831907249c12}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Parser">
       <UniqueIdentifier>{70b1536b-3f20-47ee-83c5-58a5a988b7b6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Lexer\Token">
+      <UniqueIdentifier>{41f874cf-2f40-415e-b435-831907249c12}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -37,7 +37,7 @@
       <Filter>Lexer</Filter>
     </ClCompile>
     <ClCompile Include="Token.cpp">
-      <Filter>Token</Filter>
+      <Filter>Lexer\Token</Filter>
     </ClCompile>
     <ClCompile Include="Parser.cpp">
       <Filter>Parser</Filter>
@@ -66,7 +66,7 @@
       <Filter>Lexer</Filter>
     </ClInclude>
     <ClInclude Include="Token.hpp">
-      <Filter>Token</Filter>
+      <Filter>Lexer\Token</Filter>
     </ClInclude>
     <ClInclude Include="Parser.hpp">
       <Filter>Parser</Filter>

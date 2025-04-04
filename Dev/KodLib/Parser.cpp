@@ -51,7 +51,12 @@ namespace Kod
 
     AstNodeUPtr Parser::_mul_div_mod()
     {
-        return _binary([this]() { return _factor(); }, TokenType::MUL, TokenType::DIV, TokenType::MOD);
+        return _binary([this]() { return _pow(); }, TokenType::MUL, TokenType::DIV, TokenType::MOD);
+    }
+
+    AstNodeUPtr Parser::_pow()
+    {
+        return _binary([this]() { return _factor(); }, TokenType::POW);
     }
 
     AstNodeUPtr Parser::_factor()

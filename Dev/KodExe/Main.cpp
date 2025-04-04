@@ -3,26 +3,30 @@
 
 int wmain(int argc, char** argv)
 {
-    (void)argc;
-    (void)argv;
+    std::ignore = argc, argv;
 
     try
     {
         const std::wstring file_path = L"text.txt";
         const std::wstring buffer = FileUtils::read_whole_file(file_path);
         
-        Kod::Parser parser(std::make_unique<Kod::Lexer>(buffer, file_path));
+        Kod::LexerUPtr lexer = std::make_unique<Kod::Lexer>(buffer, file_path);
+
+        Kod::LexerState state = lexer->get_state();
+
+        Kod::Token token;
+        do
+        {
+            token = lexer->get_next_token();
+            std::wcout << token << std::endl;
+        } while (!token.is(Kod::TokenType::END_OF_INPUT));
+
+        lexer->restore_state(state);
+        Kod::Parser parser(std::move(lexer));
 
         Kod::AstNodeUPtr root = parser.parse();
         std::wcout << *root << std::endl;
 
-        //Kod::Token token;
-        //do
-        //{
-        //    token = lexer.get_next_token();
-        //    std::wcout << token << std::endl;
-        //} 
-        //while (!token.is(Kod::TokenType::END_OF_INPUT));
     }
     catch (const KodException& e)
     {
