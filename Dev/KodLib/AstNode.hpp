@@ -43,6 +43,36 @@ namespace Kod
     private:
         static AstNodeFactoryPtr g_instance;
     };
+    
+    class AstNodeCompound : public AstNode
+    {
+    public:
+        explicit AstNodeCompound(std::vector<AstNodeUPtr> nodes = {}) :
+            m_nodes(std::move(nodes)) {}
+        ~AstNodeCompound() override = default;
+        AstNodeCompound(const AstNodeCompound&) = delete;
+        AstNodeCompound& operator=(const AstNodeCompound&) = delete;
+        AstNodeCompound(AstNodeCompound&&) = delete;
+        AstNodeCompound& operator=(AstNodeCompound&&) = delete;
+
+        void push_back(AstNodeUPtr node)
+        {
+            m_nodes.push_back(std::move(node));
+        }
+
+        std::wstring to_string() const override 
+        {
+            std::wstring result;
+            for (auto&& node : m_nodes)
+            {
+                result += node->to_string() + L"\n";
+            }
+            return result;
+        }
+
+    private:
+        std::vector<AstNodeUPtr> m_nodes;
+    };
 
     class AstNodeString : public AstNode
     {

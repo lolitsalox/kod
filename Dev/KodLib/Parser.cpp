@@ -11,7 +11,21 @@ namespace Kod
     
     AstNodeUPtr Parser::parse()
     {
-        return _assignment();
+        auto compound = std::make_unique<AstNodeCompound>();
+
+        do
+        {
+            compound->push_back(_assignment());
+
+            // Each expression must end with a new line
+            _eat_token(TokenType::NEW_LINE);
+
+            // Followed by any amount of new lines
+            while (_optional_eat_token(TokenType::NEW_LINE));
+            
+        } while (!_optional_eat_token(TokenType::END_OF_INPUT));
+
+        return std::move(compound);
     }
 
     void Parser::_next_token()

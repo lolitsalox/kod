@@ -1,17 +1,16 @@
+#include <filesystem>
 #include "FileUtils.hpp"
 #include "Parser.hpp"
 
-int wmain(int argc, char** argv)
+int wmain(int argc, wchar_t** argv)
 {
     std::ignore = argc, argv;
 
     try
     {
-        const std::wstring file_path = L"text.txt";
+        const std::wstring file_path = L"C:\\Projects\\Kod\\Testing\\text.kod";
         const std::wstring buffer = FileUtils::read_whole_file(file_path);
-        
-        Kod::LexerUPtr lexer = std::make_unique<Kod::Lexer>(buffer, file_path);
-
+        auto lexer = std::make_unique<Kod::Lexer>(buffer, file_path);
         Kod::LexerState state = lexer->get_state();
 
         Kod::Token token;
