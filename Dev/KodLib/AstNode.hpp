@@ -14,7 +14,7 @@ namespace Kod
         AstNode(AstNode&&) = delete;
         AstNode& operator=(AstNode&&) = delete;
 
-        virtual std::wstring to_string() const = 0;
+        virtual std::wstring to_string(uint32_t level = 0) const = 0;
 
     private:
         friend std::wostream& operator<<(std::wostream& os, const AstNode& node);
@@ -60,14 +60,16 @@ namespace Kod
             m_nodes.push_back(std::move(node));
         }
 
-        std::wstring to_string() const override 
+        std::wstring to_string(uint32_t level = 0) const override 
         {
-            std::wstring result;
+            std::wstringstream result;
+            result << std::wstring(level * 4, L' ') << L"{\n";
             for (auto&& node : m_nodes)
             {
-                result += node->to_string() + L"\n";
+                result << node->to_string(level + 1) + L"\n";
             }
-            return result;
+            result << std::wstring(level * 4, L' ') << L"}";
+            return result.str();
         }
 
     private:
@@ -85,7 +87,7 @@ namespace Kod
         AstNodeString(AstNodeString&&) = delete;
         AstNodeString& operator=(AstNodeString&&) = delete;
 
-        virtual std::wstring to_string() const override 
+        virtual std::wstring to_string(uint32_t) const override 
         { 
             std::wostringstream ss;
             ss << std::quoted(m_string); 
@@ -107,7 +109,7 @@ namespace Kod
         AstNodeIdentifier(AstNodeIdentifier&&) = delete;
         AstNodeIdentifier& operator=(AstNodeIdentifier&&) = delete;
 
-        virtual std::wstring to_string() const override { return m_identifier; }
+        virtual std::wstring to_string(uint32_t) const override { return m_identifier; }
 
     private:
         const std::wstring m_identifier;
@@ -124,7 +126,7 @@ namespace Kod
         AstNodeNumber(AstNodeNumber&&) = delete;
         AstNodeNumber& operator=(AstNodeNumber&&) = delete;
 
-        virtual std::wstring to_string() const override { return m_number; }
+        virtual std::wstring to_string(uint32_t) const override { return m_number; }
 
     private:
         const std::wstring m_number;
@@ -141,9 +143,14 @@ namespace Kod
         AstNodeBinaryOp(AstNodeBinaryOp&&) = delete;
         AstNodeBinaryOp& operator=(AstNodeBinaryOp&&) = delete;
 
-        virtual std::wstring to_string() const override 
-        { 
-            return L"(" + m_lhs->to_string() + L" " + m_operator.get_value() + L" " + m_rhs->to_string() + L")"; 
+        virtual std::wstring to_string(uint32_t level = 0) const override 
+        {
+            std::wstringstream ss;
+            ss << std::wstring(level * 4, L' ');
+            ss << L"(" << m_lhs->to_string(level + 1) << L" " <<
+               m_operator.get_value() << L" " <<
+               m_rhs->to_string(level + 1) << L")";
+            return ss.str();
         }
 
     private:
